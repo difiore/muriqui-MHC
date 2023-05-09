@@ -1,0 +1,515 @@
+---
+title: "Muriqui MHC Analyses"
+author: "Anthony Di Fiore"
+date: "2023-05-06"
+output: html_document
+---
+
+# Preliminaries
+```{r Load Libraries}
+library(here)
+library(related)
+library(tidyverse)
+library(skimr)
+library(stringi)
+library(infer) # for `get_p_value()`
+library(readxl)
+library(cowplot)
+```
+
+```{r Load Datasets}
+adults_genos <- readgenotypedata("data/adults_genos.txt")
+all_genos <- readgenotypedata("data/all_genos.txt")
+```
+
+# Relatedness
+
+```{r Relatedness Estimate Calculations}
+adults_rel <- coancestry(adults_genos$gdata, allow.inbreeding = FALSE, error.rates = 0.01 , quellergt = 2, ritland = 0)
+all_rel <- coancestry(all_genos$gdata, allow.inbreeding = FALSE, error.rates = 0.01 , quellergt = 2, ritland = 0)
+
+# Extract the pairwise R values from the rel$relatedness object and reformat columns
+
+adults_pairwise_R <- adults_rel$relatedness %>%
+  select(pair.no, ind1.id, ind2.id, quellergt)
+
+all_pairwise_R <- all_rel$relatedness %>%
+  select(pair.no, ind1.id, ind2.id, quellergt)
+```
+
+# MHC Summary Statistics
+
+We first want to summarize, for each male and female, the total number of MHC alleles they have. So, we read in two data files of raw MHC allele presence/absence data and calculate the total MHC diversity for each individual. These are two files with rows containing male or female IDs and columns scoring the presence/absence (1/0) of each of 22 MHC alleles.
+
+```{r MHC Summary Statistics}
+m <- "data/mhc_males.txt"
+f <- "data/mhc_females.txt"
+
+males.data <- read_table(m, col_names = TRUE)
+males.data <- males.data %>%
+  mutate(div = rowSums(across(where(is.numeric))))
+# skim(males.data$div) # uncomment for quick visualization of summary stats
+males.div <- males.data %>%
+  select(ID, div)
+
+females.data <- read_table(f, col_names = TRUE)
+females.data <- females.data %>%
+  mutate(div = rowSums(across(where(is.numeric))))
+# skim(females.data$div) # uncomment for quick visualization of summary stats
+females.div <- females.data %>%
+  select(ID, div)
+```
+
+# Generate Diversity, Dissmilarity, and Relatedness Matrices
+
+We now want to create several data sets we will need to test hypotheses.
+
+## Diversity
+
+To test H1, about MALE MHC DIVERSITY, we need a matrix consisting of a row for each female dam in the dataset and a column for each male, where cell values reflect each particular male's total number of MHC alleles, as calculated above. Note that all rows in this female X male matrix will have the same values.
+
+```{r Diversity Matrix}
+males.div <- males.div %>%
+  column_to_rownames("ID") %>%
+  as.matrix()
+females.id <- column_to_rownames(females.data, "ID") %>%
+  mutate(div = 1) %>%
+  select(div) %>%
+  as.matrix()
+male.diversity <- females.id %*% t(males.div)
+# this matrix now contains the total number of MHC alleles that each male (columns) has, repeated for each female (rows)
+```
+
+## Dissimilarity
+
+To test H2, about DISSIMILARITY between males and females, we need to create matrices that summarize aspects of MHC ALLELE SHARING AND NONSHARING between dams and possible sires. Again, these matrices should consist of a row for each female dam in the population and a column for each male. Cell values for these matrices indicate the number of MHC alleles that the particular combination of dam and male have in common ("sharing"), do not have in common ("dissimilarity"), or are unique in one or the other sex "uniqueness".
+
+We first reformat the tables summarizing MHC allele presence/absence (1/0) in males and females, respectively, into numeric data matrices where row attributes are individual IDs and columns attributes are the presence/absence (1/0) of each MHC allele. These matrixare useful for quickly constructing cross-tabulations for allele sharing and nonsharing for different pairs of individuals.
+
+```{r Allele Presence/Absence Matrices}
+males.alleles.matrix <- males.data %>%
+  column_to_rownames("ID") %>%
+  select(-div) %>%
+  as.matrix()
+
+females.alleles.matrix <- females.data %>%
+  column_to_rownames("ID") %>%
+  select(-div) %>%
+  as.matrix()
+```
+
+Now, to get a matrix of MHC ALLELE SHARING values between all pairs of males and females, we use the matrix multiplication operator (%*%) to take the cross product of the female and (transposed) male 1/0 matrices, which results in a matrix of pairwise allele *sharing*, i.e., the number of shared alleles between each pair of female-male pair.
+
+```{r Female-Male Allele Sharing Matrix}
+sharing <- females.alleles.matrix %*% t(males.alleles.matrix)
+# This matrix now contains the total number of MHC alleles shared between each combination of female (rows) and male (columns)
+```
+
+We create a matrix of MHC DISSIMILARITY between males and females, i.e., the total number of alleles present in each pair of female and male that they *do not* have in common, using the code below...
+
+```{r Female-Male Dissimilarity Matrix}
+dissimilarity <- ncol(females.alleles.matrix) -
+  (!females.alleles.matrix) %*% t(!males.alleles.matrix) -
+  females.alleles.matrix %*% t(males.alleles.matrix)
+# this is now a dissimilarity matrix... the number of alleles present in either individual that not shared between each female (rows) and male (columns)
+```
+
+Finally, we create a matrix of male "uniqueness" relative to to each female, i.e., the total number of alleles a male has that each female does not, with the code below...
+
+```{r Male Uniqueness Matrix}
+male.uniqueness <- (!females.alleles.matrix) %*% t(males.alleles.matrix)
+# This is now a matrix of how many alleles each male (columns) has that are different from those found in each particular female (rows)
+```
+
+## Relatedness
+
+To test H3, about relatedness between dam-sire pairs, we need a matrix of pairwise estimated genetic relatedness that is structured similarly to those matrices created above, i.e., with females in rows and males in columns. We create this matrix using the adult pairwise R estimates we generated above.
+
+```{r Female-Male Relatedness Matrix}
+# Create a list of all adult IDs
+ids <- sort(unique(c(as.character(adults_pairwise_R$ind1.id), as.character(adults_pairwise_R$ind2.id))))
+
+# Set up an empty matrix to hold pairwise R estimates
+relatedness_matrix <- matrix(NA, nrow = length(ids), ncol = length(ids), dimnames = list(ids, ids))
+
+# Fill the diagonal
+diag(relatedness_matrix) <- 1 
+
+# Fill the upper half of the matrix
+relatedness_matrix[as.matrix(adults_pairwise_R[, c("ind1.id", "ind2.id")])] <- adults_pairwise_R[,c("quellergt")] # R values
+
+# Fill the lower half of the matrix
+relatedness_matrix[as.matrix(adults_pairwise_R[, c("ind2.id", "ind1.id")])] <- adults_pairwise_R[,c("quellergt")] # R values
+# This is now a full dyadic relatedness matrix
+
+# Convert this full matrix to a "tibble", a special kind of data frame, which lets us manipulate it easily
+relatedness_matrix <- as_tibble(relatedness_matrix)
+names(relatedness_matrix) <- ids
+relatedness_matrix <- bind_cols(ID = ids, relatedness_matrix)
+
+# Get adult male and female IDs
+males <- males.data %>% pull(ID)
+females <- females.data %>% pull(ID)
+
+# Extract only male columns and female rows from relatedness matrix
+relatedness <- relatedness_matrix %>% select(c(ID, all_of(males))) %>% filter(ID %in% females)
+
+# Convert this "tibble" back to a matrix with females in rows and males in columns
+relatedness <- column_to_rownames(relatedness, "ID")
+relatedness <- as.matrix(relatedness)
+# This is now a matrix of estimated R between each female (rows) and each male (columns) in the dataset
+```
+
+The dimensions of the five matrices we have just created -- sharing, male.diversity, dissimilarity, male.uniqueness, and relatedness -- should all be 27 females by 32 males.
+
+# Simulations
+
+All simulations are based on the same number of replicates, set below.
+
+```{r Set Number Replicates}
+reps <- 100000
+```
+
+## H1 - MHC ALLELE DIVERSITY IN SIRES
+
+To test H1, we want to compare average MHC diversity among actual sires to average diversity among a set of random possible sires for each offspring to examine whether females have offspring with males who have, on average, higher MHC diversity than expected by chance. For the relevant data are in the data in matrix "male.diversity" generated above.
+
+However, we cannot just use this matrix as created because we need to take into account the fact that [1] some dams in the population had more than one offspring in our dataset and [2] that, for some offspring, certain males were not available as potential sires (e.g., because they were too young or were dead or otherwise not present at the time of a particular offspring's conception). Thus, we need to create an updated version of the "male.diversity" matrix that incorporates this additional demographic information about the availability of different males as potential sires.
+
+We do this by first loading in a data table which has one row for each known dam-offspring dyad (based on parentage results) and one column for all adult males in the study population, where the cell values in this matrix are `1` if a male was considered a candidate sire for that particular offspring (i.e., if he was present in the group and greater than 5 years of age at the time of the offspring's conception) or `NA` if the male was not considered a candidate sire (i.e., he was too young or was dead).
+
+```{r Demographic Overview Matrix}
+overview <- read_tsv("data/parentage_and_candidates.txt", col_names = TRUE)
+offspring <- overview %>% pull(OFFSPRING)
+dams <- overview %>% pull(DAM)
+sires <- overview %>% pull(SIRE)
+candidates <- names(overview)[-3:-1] # all possible candidate sire names, which is equivalent to "males", generated above
+overview <- as.matrix(overview[, 4:ncol(overview)]) # subset and convert to matrix...
+dimnames(overview) = list(dams, candidates) # assign dam name as rowname
+
+# This is now a matrix containing information on whether each male was considered a candidate sire or not for each of the 47 offspring in the data, with dam ID as the rowname and candidate sire ID as the column name
+```
+
+We then extract from the appropriate value from the original male.diversity matrix for each combination of dam and male for only those cells where the value is `1`.
+
+```{r Updated Male Diversity Matrix}
+# Create an empty matrix that we will fill with appropriate values
+male.diversity.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
+
+# Extract values from male.diversity only where the overview matrix indicates a male could be a potential sire of each dams' offspring
+for (i in 1:nrow(overview)) {
+  for (j in dimnames(male.diversity.updated)[[2]]) {
+    male.diversity.updated[i,j] <- overview[i,j] * male.diversity[rownames(male.diversity.updated)[[i]], j]
+  }
+}
+```
+
+This matrix now contains, for each of 47 offspring, a unique combination of dam + offspring as rows, all male IDs as columns, and, as cell values, the number of MHC alleles carried by each potential sire, with cells only filled in if the male could have potentially sired the given offspring.
+
+Now we sample, for each row in the data matrix a random column (male) to generate a set of N = 47 actual dam + random potential sire pairs. This is repeated `reps` times, and for each replicate, we calculate the mean number of alleles that "sires" have across this set of 47 offspring. The `!is.na` in the apply() function line in the simulation means that we can only sample a male as random sire if the data for him is not `NA`.
+
+The result of each simulation is the average MHC allelic diversity across 47 simulated sires, and `sim.male.divervsity$stat` is thus a null distribution of average male MHC diversity scores across random sets of sires.
+
+```{r Male Diversity Simulation}
+set.seed(11539) # Use the same random seed for each simulation to generate results for exact figures reported in paper. The seed can be anything! P values will change slightly, but results are unchanged.
+
+sim.male.diversity <- replicate(
+  reps,
+  apply(male.diversity.updated, 1, function(x) sample(x[!is.na(x)], 1))
+  ) %>%
+  t() %>%
+  as_tibble() %>% 
+  mutate(replicate = row_number()) %>%
+  pivot_longer(cols = -c(replicate)) %>%
+  group_by(replicate) %>%
+  summarize(stat = mean(value))
+```
+
+Next, we calculate the observed average male MHC diversity among known sires and compare to this the critical value derived from the simulation distribution. To calculate the observed average, we simply pull out the relevant values from the "male.diversity" matrix...
+
+```{r Observed Mean Male Diversity}
+# Extract values to calculate observed male MHC diversity in pairs that we know actually had kids together and calculate the average
+
+male.diversity.obs <- vector() # vector to hold results
+for (i in 1:length(offspring)){
+  male.diversity.obs[i] <- male.diversity[dams[i], sires[i]]
+}
+
+mean.male.diversity = mean(male.diversity.obs)
+```
+
+Because we are testing the one-tailed hypothesis of higher allelic diversity among the set of actual sires than random sires, the critical value of interest corresponds to the 95th quantile of the simulation distribution.
+
+The associated p value is simply the proportion of simulation runs where the average diversity among sets of random sires exceeds that among observed in the set of real sires.
+
+```{r Critical Value and P Value}
+
+(male.diversity.crit.val <- quantile(sim.male.diversity$stat, c(0.95)))
+
+(p.val <- sum(sim.male.diversity$stat > mean.male.diversity)/reps)
+```
+
+```{r Plot Results}
+male.diversity.plot <- ggplot(
+  data = sim.male.diversity, aes(stat)) +
+  geom_histogram(
+    aes(y = after_stat(density)),
+    fill = "darkgrey",
+    binwidth = 0.05,
+    center = mean(sim.male.diversity$stat)) +
+  geom_density(
+    fill = "blue", alpha = 0.2) +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(1, 0, 0, 1), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  ) +
+  ggtitle("Average MHC Diversity among Sires") +
+  xlab("Number of Alleles") +
+  ylab("Frequency") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1, decimal.mark = '.')) +
+  geom_vline(xintercept = mean.male.diversity, col = "blue" ,linewidth = 1) +
+  geom_vline(xintercept = diversity.crit.val, linetype = "dotted", color = "black", linewidth = 1)
+
+male.diversity.plot
+```
+
+## H2 - MHC DISSMILARITY and UNIQUENESS
+
+One way look at whether dam-sire pairs reflect disassortative mating is to do a similar simulation using the *dissimilarity* dataset. To do this, we need to create an updated version of the "dissimilarity" data matrix that, as above, duplicates lines corresponding to additional offspring for each female and has `NA`s in cells for where an given male could not be a potential sire for the offspring in question, based on longitudinal demographic data. The process to create this updated matrix is the same as followed above.
+
+```{r Updated Dissimilarity Matrix}
+# Create an empty matrix that we will fill with appropriate values
+dissimilarity.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
+
+# Extract values from male.dissimilarity only where the overview matrix indicates a male could be a potential sire of each dams' offspring
+for (i in 1:nrow(overview)) {
+  for (j in dimnames(dissimilarity.updated)[[2]]) {
+    dissimilarity.updated[i,j] <- overview[i,j] * dissimilarity[rownames(dissimilarity.updated)[[i]], j]
+  }
+}
+```
+
+This matrix now contains, for each of 47 offspring, a unique combination of dam + offspring as rows, all male IDs as columns, and, as cell values, the number of MHC alleles possessed by a given female-male pair that they *do* not have in common. Cells are only filled with a value if the male in question (column) could have potentially sired the offspring represented in each dam-offspring row.
+
+Now we again sample, for each row in the data matrix a random column (male) to generate a set of N = 47 actual dam + random potential sire pairs. This is repeated `reps` times, and for each replicate, we calculate the mean dissimilarity between dam and sire across this set of 47 offspring. `sim.dissimilarity$stat` is thus a null distribution of average dam-sire dissimilarity scores across random sets of sires.
+
+```{r Female-Male Dissimilarity Simulation}
+set.seed(11539)
+
+sim.dissimilarity <- replicate(
+  reps,
+  apply(dissimilarity.updated, 1, function(x) sample(x[!is.na(x)], 1))
+  ) %>%
+  t() %>%
+  as_tibble() %>% 
+  mutate(replicate = row_number()) %>%
+  pivot_longer(cols = -c(replicate)) %>%
+  group_by(replicate) %>%
+  summarize(stat = mean(value))
+```
+
+We extract observed allelic dissimilarity among actual dam-sire pairs by pulling the relevant data from the "dissimilarity" matrix and calculate the average of these values...
+
+```{r Observed Mean Female-Male Dissimilarity}
+dissimilarity.obs <- vector()
+for (i in 1:length(offspring)){
+  dissimilarity.obs[i] <- dissimilarity[dams[i], sires[i]]
+}
+
+mean.dissimilarity = mean(dissimilarity.obs)
+```
+
+Because we are testing the one-tailed hypotheses of greater allelic dissimilarity among the set of dam-actual sire pairs than among dam-random sire pairs, the critical value of interest corresponds to the 95th quantile of the simulation distribution.
+
+The associated p value is simply the proportion of simulation runs where the average dissimilarity among sets of random sires exceeds that among observed in the set of real sires.
+
+```{r Critical Value and P Value}
+(dissimilarity.crit.val <- quantile(sim.dissimilarity$stat, c(0.95)))
+
+(p.val <- sum(sim.dissimilarity$stat > mean.dissimilarity)/reps)
+```
+
+```{r Plot Results}
+dissimilarity.plot <- ggplot(
+  data = sim.dissimilarity, aes(stat)) +
+  geom_histogram(aes(y = after_stat(density)), fill = "darkgrey", binwidth = 0.075, center = mean(sim.dissimilarity$stat)) +
+  geom_density(fill = "blue", alpha = 0.2) +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(1, 1, 0, 0), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  ) +
+  ggtitle("Average Dam-Sire Allelic Dissimilarity") +
+  xlab("Number of Alleles") +
+  ylab("Frequency") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1, decimal.mark = '.')) +
+  geom_vline(xintercept = mean.dissimilarity, col = "red" ,linewidth = 1) +
+  geom_vline(xintercept = dissimilarity.crit.val, linetype = "dotted", color = "black", linewidth = 1)
+
+dissimilarity.plot
+```
+
+As a second test relevant to this hypothesis, we can also examine whether dams have offspring with sires that have a greater number of *unique* MHC alleles relative to themselves. For this we would use the data in matrix "male.uniqueness", again updating that matrix to take into account the fact that some females had more than one offspring in our dataset and that, for some offspring, certain males were not available as potential sires.
+
+```{r Updated Male Uniqueness Matrix}
+# Create an empty matrix that we will fill with appropriate values
+male.uniqueness.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
+
+# Extract values from male.uniqueness only where the overview matrix indicates a male could be a potential sire of each dams' offspring
+for (i in 1:nrow(overview)) {
+  for (j in dimnames(male.uniqueness.updated)[[2]]) {
+    male.uniqueness.updated[i,j] <- overview[i,j] * male.uniqueness[rownames(male.uniqueness.updated)[[i]], j]
+  }
+}
+```
+
+We then run an analogous simulation to those above. This time, the result of each simulation is the average number of unique alleles among each set of simulated sires, and the null distribution of this statistic is held in `sim.male.uniqueness$stat`.
+
+```{r Male Uniqueness Simulation}
+set.seed(11539)
+
+sim.male.uniqueness <- replicate(
+  reps,
+  apply(male.uniqueness.updated, 1, function(x) sample(x[!is.na(x)], 1))
+  ) %>%
+  t() %>%
+  as_tibble() %>% 
+  mutate(replicate = row_number()) %>%
+  pivot_longer(cols = -c(replicate)) %>%
+  group_by(replicate) %>%
+  summarize(stat = mean(value))
+```
+
+As above, we extract observed uniquess among actual sires relative to dams by pulling the relevant data from the "male.uniqueness" matrix and calculating the average of these values...
+
+```{r Observed Mean Male Uniqueness}
+male.uniqueness.obs <- vector()
+for (i in 1:length(offspring)){
+  male.uniqueness.obs[i] <- male.uniqueness[dams[i], sires[i]]
+}
+
+mean.male.uniqueness <- mean(male.uniqueness.obs)
+```
+
+Because we are testing the one-tailed hypotheses of higher allelic uniquness among the set of dam-actual sire pairs than among dam-random sire pairs, the critical value of interest corresponds to the 95th quantile of the simulation distribution.
+
+The associated p value is simply the proportion of simulation runs where the average male uniqueness among sets of random sires exceeds that among observed in the set of real sires.
+
+```{r Critical Value and P Value}
+(male.uniqueness.crit.val <- quantile(sim.male.uniqueness$stat, c(0.95)))
+
+(p.val <- sum(sim.male.uniqueness$stat > mean.male.uniqueness)/reps)
+```
+
+```{r Plot Results}
+male.uniqueness.plot <- ggplot(
+  data = sim.male.uniqueness, aes(stat)) +
+  geom_histogram(aes(y = after_stat(density)), fill = "darkgrey", binwidth = 0.075, center = mean(sim.male.uniqueness$stat)) +
+  geom_density(fill = "blue", alpha = 0.2) +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(0, 0, 1, 1), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  ) +
+  ggtitle("Average # Unique Alleles in Sires") +
+  xlab("Number of Alleles") +
+  ylab("Frequency") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1, decimal.mark = '.')) +
+  geom_vline(xintercept = mean.male.uniqueness, col = "red" ,linewidth = 1) +
+  geom_vline(xintercept = male.uniqueness.crit.val, linetype = "dotted", color = "black", linewidth = 1)
+
+male.uniqueness.plot
+```
+
+## H3 - Relatedness and Kinship
+
+Here, we examine whether dam-actual sire pairs are more or less closely related, on average, than dam-random sire pairs. As above, we first create an updated "relatedness" data matrix that duplicates lines corresponding to additional offspring for each female and has `NA`s in cells for where an given male could not be a potential sire for the offspring in question,
+
+```{r Updated Relatedness Matrix}
+# Create an empty matrix that we will fill with appropriate values
+relatedness.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
+
+# Extract values from relatedness matrix only where the overview matrix indicates a male could be a potential sire of each dams' offspring
+
+for (i in 1:nrow(overview)) {
+  for (j in dimnames(relatedness.updated)[[2]]) {
+    relatedness.updated[i,j] <- overview[i,j] * rel.matrix[rownames(relatedness.updated)[[i]], j]
+  }
+}
+```
+
+We then run another analogous simulation to those above. This time, the result of each simulation is the average relatedness among each set of dams + simulated sires, and the null distribution of this statistic is held in `sim.relatedness$stat`.
+
+```{r Relatedness Simulation}
+set.seed(11539)
+
+sim.relatedness <- replicate(
+  reps,
+  apply(relatedness.updated, 1, function(x) sample(x[!is.na(x)], 1))
+  ) %>%
+  t() %>%
+  as_tibble() %>% 
+  mutate(replicate = row_number()) %>%
+  pivot_longer(cols = -c(replicate)) %>%
+  group_by(replicate) %>%
+  summarize(stat = mean(value))
+```
+
+As above, we extract observed relatedness among actual dam-sire pairs by pulling the relevant data from the "relatedness" matrix and calculating the average of these values...
+
+```{r Observed Mean Female-Mean Relatedness}
+# Extract values to calculate observed mean relatedness between mated pairs
+
+relatedness.obs <- vector()
+for (i in 1:length(offspring)){
+  relatedness.obs[i] <- rel.matrix[dams[i], sires[i]]
+}
+
+mean.relatedness = mean(relatedness.obs)
+```
+
+Because we are testing the one-tailed hypothesis of lower relatedness among the set of dam-actual sire pairs than among dam-random sire pairs, the critical value of interest corresponds to the 5th quantile of the simulation distribution.
+
+The associated p value is simply the proportion of simulation runs where the average relatedness among random dam-sire pairs is less than that among real pairs.
+
+```{r Critical Value and P Value}
+(relatedness.crit.val <- quantile(sim.relatedness$stat, c(0.05)))
+
+(p.val <- sum(sim.relatedness$stat < mean.relatedness)/reps)
+```
+
+```{r Plot Results}
+relatedness.plot <- ggplot(data = sim.relatedness, aes(stat)) +
+  geom_histogram(aes(y = after_stat(density)), fill = "darkgrey", binwidth = 0.01, center = mean(sim.relatedness$stat)) +
+  geom_density(fill = "blue", alpha = 0.2) +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(0, 1, 1, 0), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  ) +
+  ggtitle("Average Dam-Sire Relatedness") +
+  xlab("Estimated R") +
+  ylab("Frequency") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1, decimal.mark = '.')) +
+  geom_vline(xintercept = relatedness.crit.val, linetype = "dotted", color = "black", linewidth = 1) +
+  geom_vline(xintercept = mean.relatedness, col = "red", linewidth = 1)
+
+relatedness.plot
+```
