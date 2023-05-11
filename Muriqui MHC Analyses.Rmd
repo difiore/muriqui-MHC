@@ -37,6 +37,84 @@ all_pairwise_R <- all_rel$relatedness %>%
   select(pair.no, ind1.id, ind2.id, quellergt)
 ```
 
+# Comparing Male-Male and Female-Female Relatedness
+
+```{r Compare Relatedness}
+# First, we need to assign sexes to each individual and then assign a group class to each dyad...
+# 
+```
+####
+
+set.seed(11539)
+
+nperm <- 1000
+reps_group_means_ind <- tibble(FF = numeric(),
+  MM = numeric(),
+  MS = numeric())
+for (i in 1:nperm) {
+  # first, shuffle up group for each individual
+  ind.list <- unique(c(pairwise_R$ind1.id, pairwise_R$ind2.id))
+  shuffled.group <- tibble(orig.id = ind.list) %>%
+    mutate(
+      orig.group = str_sub(orig.id, 1, 2),
+      id.new = str_sub(orig.id, -1 * (stringi::stri_length(orig.id) - 2), -1)
+      ) %>%
+    mutate(shuffled.group = sample(orig.group))
+  
+  # second, make a temp dataframe from pairwise_R
+  temp <- pairwise_R
+  # now merge temp and shuffled group to get "new groups" for each individual
+  temp <- inner_join(temp, shuffled.group, by = c("ind1.id.new" = "id.new"))
+  temp <- inner_join(temp, shuffled.group, by = c("ind2.id.new" = "id.new"))
+  temp <- temp %>% mutate(new.dyad = paste0(shuffled.group.x, shuffled.group.y))
+  temp <- temp %>% mutate(new.dyad = case_when(
+    new.dyad == "MAFA" | new.dyad == "FAMA" ~ "MS",
+    new.dyad == "FAFA" ~ "FF",
+    new.dyad == "MAMA" ~ "MM"))
+  temp <- temp %>%
+    group_by(new.dyad) %>%
+    summarize(mean = mean(quellergt)) %>%
+    pivot_wider(values_from = mean, names_from = new.dyad)
+  reps_group_means_ind <- bind_rows(reps_group_means_ind, temp)
+}
+
+reps_group_means_ind <- reps_group_means_ind %>%
+  mutate(
+     MM_FF_diff = MM - FF,
+     MM_MS_diff = MM - MS,
+     FF_MS_diff = FF - MS)
+
+reps_ind_long <- reps_group_means_ind %>%
+  pivot_longer(everything()) %>%
+  rename(dyad = name, `Mean R` = value)
+
+reps_ind_long$dyad <- factor(reps_ind_long$dyad, levels = c("FF", "MS", "MM", "FF_MS_diff", "MM_MS_diff", "MM_FF_diff"))
+
+p2 <- ggplot(data = reps_ind_long, aes(x = `Mean R`)) +
+  geom_histogram(bins = 25, aes(y = ..density..)) +
+  geom_density() +
+  facet_wrap(~dyad, scales = "free") +
+  ggtitle("Expected Mean R by Dyad Class - Permuting Individuals") +
+  geom_vline(
+    data = obs_rel_by_group,
+    aes(xintercept = `Mean R`), color = c("red", "blue", "blue", "blue", "blue","red")) +
+  facet_wrap(~dyad, scales = "free")
+
+get_p_value(reps_ind_long %>% filter(dyad == "MM") %>% select(`Mean R`), obs_rel_by_group %>% filter(dyad == "MM") %>% pull(`Mean R`), direction = "right")
+
+get_p_value(reps_ind_long %>% filter(dyad == "FF") %>% select(`Mean R`), obs_rel_by_group %>% filter(dyad == "FF") %>% pull(`Mean R`), direction = "left")
+
+get_p_value(reps_ind_long %>% filter(dyad == "MS") %>% select(`Mean R`), obs_rel_by_group %>% filter(dyad == "MS") %>% pull(`Mean R`), direction = "both")
+
+get_p_value(reps_ind_long %>% filter(dyad == "FF_MS_diff") %>% select(`Mean R`), obs_rel_by_group %>% filter(dyad == "FF_MS_diff") %>% pull(`Mean R`), direction = "both")
+
+get_p_value(reps_ind_long %>% filter(dyad == "MM_MS_diff") %>% select(`Mean R`), obs_rel_by_group %>% filter(dyad == "MM_MS_diff") %>% pull(`Mean R`), direction = "both")
+
+get_p_value(reps_ind_long %>% filter(dyad == "MM_FF_diff") %>% select(`Mean R`), obs_rel_by_group %>% filter(dyad == "MM_FF_diff") %>% pull(`Mean R`), direction = "right")
+```
+
+#####
+
 # MHC Summary Statistics
 
 We first want to summarize, for each male and female, the total number of MHC alleles they have. So, we read in two data files of raw MHC allele presence/absence data and calculate the total MHC diversity for each individual. These are two files with rows containing male or female IDs and columns scoring the presence/absence (1/0) of each of 22 MHC alleles.
@@ -273,7 +351,7 @@ male.diversity.plot <- ggplot(
   ylab("Frequency") +
   scale_y_continuous(labels = scales::number_format(accuracy = 0.1, decimal.mark = '.')) +
   geom_vline(xintercept = mean.male.diversity, col = "blue" ,linewidth = 1) +
-  geom_vline(xintercept = diversity.crit.val, linetype = "dotted", color = "black", linewidth = 1)
+  geom_vline(xintercept = male.diversity.crit.val, linetype = "dotted", color = "black", linewidth = 1)
 
 male.diversity.plot
 ```
@@ -442,11 +520,11 @@ Here, we examine whether dam-actual sire pairs are more or less closely related,
 # Create an empty matrix that we will fill with appropriate values
 relatedness.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
 
-# Extract values from relatedness matrix only where the overview matrix indicates a male could be a potential sire of each dams' offspring
+# Extract values from relatedness only where the overview matrix indicates a male could be a potential sire of each dams' offspring
 
 for (i in 1:nrow(overview)) {
   for (j in dimnames(relatedness.updated)[[2]]) {
-    relatedness.updated[i,j] <- overview[i,j] * rel.matrix[rownames(relatedness.updated)[[i]], j]
+    relatedness.updated[i,j] <- overview[i,j] * relatedness[rownames(relatedness.updated)[[i]], j]
   }
 }
 ```
@@ -475,7 +553,7 @@ As above, we extract observed relatedness among actual dam-sire pairs by pulling
 
 relatedness.obs <- vector()
 for (i in 1:length(offspring)){
-  relatedness.obs[i] <- rel.matrix[dams[i], sires[i]]
+  relatedness.obs[i] <- relatedness[dams[i], sires[i]]
 }
 
 mean.relatedness = mean(relatedness.obs)
@@ -512,4 +590,10 @@ relatedness.plot <- ggplot(data = sim.relatedness, aes(stat)) +
   geom_vline(xintercept = mean.relatedness, col = "red", linewidth = 1)
 
 relatedness.plot
+```
+
+```{r Plotting Combined Figure}
+pdf(file = "Figure 1.pdf", width = 10, height = 8) # Export figure as PDF, 10" x 8"
+plot_grid(male.diversity.plot, dissimilarity.plot, male.uniqueness.plot, relatedness.plot, nrow = 2, ncol = 2, align = c("hv"), axis = "lr", labels = c("A.", "B.", "C.", "D."))
+dev.off()
 ```
