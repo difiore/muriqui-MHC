@@ -1,6 +1,6 @@
 # muriqui-MHC
 
-This repository contains data and code used for the analyses presented in "Paternity data reveal high MHC diversity in a polygynandrous, egalitarian primate" (Chaves, Strier, and Di Fiore, under review).
+This repository contains data and code used for the analyses presented in "Paternity data reveal high MHC diversity among sires in a polygynandrous, egalitarian primate" (Chaves, Strier, and Di Fiore, under review, Proceedings of the Royal Society of London Series B: Biological Sciences).
 
 The "data" folder includes the following files:
 - adults_genos.txt = 15 loci genotype for adults in the Matão group (N = 64: 32 males and 32 females)
