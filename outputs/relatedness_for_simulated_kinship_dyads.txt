@@ -1,0 +1,401 @@
+rel	dyad_type
+0.307	Parent-Offspring
+0.4799	Parent-Offspring
+0.4082	Parent-Offspring
+0.4696	Parent-Offspring
+0.6139	Parent-Offspring
+0.3701	Parent-Offspring
+0.3361	Parent-Offspring
+0.6615	Parent-Offspring
+0.5274	Parent-Offspring
+0.5652	Parent-Offspring
+0.5429	Parent-Offspring
+0.5433	Parent-Offspring
+0.4139	Parent-Offspring
+0.7236	Parent-Offspring
+0.5418	Parent-Offspring
+0.4439	Parent-Offspring
+0.6902	Parent-Offspring
+0.6727	Parent-Offspring
+0.4918	Parent-Offspring
+0.4155	Parent-Offspring
+0.4243	Parent-Offspring
+0.5201	Parent-Offspring
+0.4828	Parent-Offspring
+0.6444	Parent-Offspring
+0.4784	Parent-Offspring
+0.5747	Parent-Offspring
+0.5338	Parent-Offspring
+0.6065	Parent-Offspring
+0.3943	Parent-Offspring
+0.6235	Parent-Offspring
+0.5502	Parent-Offspring
+0.5339	Parent-Offspring
+0.6319	Parent-Offspring
+0.6417	Parent-Offspring
+0.4343	Parent-Offspring
+0.5617	Parent-Offspring
+0.635	Parent-Offspring
+0.4638	Parent-Offspring
+0.5864	Parent-Offspring
+0.2135	Parent-Offspring
+0.351	Parent-Offspring
+0.4774	Parent-Offspring
+0.4049	Parent-Offspring
+0.7701	Parent-Offspring
+0.4206	Parent-Offspring
+0.4672	Parent-Offspring
+0.5514	Parent-Offspring
+0.2413	Parent-Offspring
+0.6309	Parent-Offspring
+0.4244	Parent-Offspring
+0.6722	Parent-Offspring
+0.6724	Parent-Offspring
+0.4332	Parent-Offspring
+0.6109	Parent-Offspring
+0.3962	Parent-Offspring
+0.4216	Parent-Offspring
+0.4411	Parent-Offspring
+0.373	Parent-Offspring
+0.7177	Parent-Offspring
+0.4364	Parent-Offspring
+0.6125	Parent-Offspring
+0.7618	Parent-Offspring
+0.5867	Parent-Offspring
+0.478	Parent-Offspring
+0.4975	Parent-Offspring
+0.128	Parent-Offspring
+0.6566	Parent-Offspring
+0.626	Parent-Offspring
+0.6297	Parent-Offspring
+0.5907	Parent-Offspring
+0.5108	Parent-Offspring
+0.5704	Parent-Offspring
+0.5285	Parent-Offspring
+0.6167	Parent-Offspring
+0.5526	Parent-Offspring
+0.689	Parent-Offspring
+0.3474	Parent-Offspring
+0.6387	Parent-Offspring
+0.6031	Parent-Offspring
+0.5754	Parent-Offspring
+0.4161	Parent-Offspring
+0.4815	Parent-Offspring
+0.4292	Parent-Offspring
+0.596	Parent-Offspring
+0.5388	Parent-Offspring
+0.3923	Parent-Offspring
+0.5122	Parent-Offspring
+0.5859	Parent-Offspring
+0.3839	Parent-Offspring
+0.5182	Parent-Offspring
+0.534	Parent-Offspring
+0.578	Parent-Offspring
+0.547	Parent-Offspring
+0.4822	Parent-Offspring
+0.5576	Parent-Offspring
+0.4326	Parent-Offspring
+0.5886	Parent-Offspring
+0.506	Parent-Offspring
+0.6012	Parent-Offspring
+0.4457	Parent-Offspring
+0.3841	Full Siblings
+0.5743	Full Siblings
+0.8462	Full Siblings
+0.5531	Full Siblings
+0.6666	Full Siblings
+0.3472	Full Siblings
+0.2852	Full Siblings
+0.3106	Full Siblings
+0.6056	Full Siblings
+0.0558	Full Siblings
+0.7765	Full Siblings
+0.4271	Full Siblings
+0.2878	Full Siblings
+0.5855	Full Siblings
+0.7504	Full Siblings
+0.2818	Full Siblings
+0.5855	Full Siblings
+0.4098	Full Siblings
+0.6493	Full Siblings
+0.6952	Full Siblings
+0.5789	Full Siblings
+0.7875	Full Siblings
+0.5207	Full Siblings
+0.6768	Full Siblings
+0.589	Full Siblings
+0.3666	Full Siblings
+0.6421	Full Siblings
+0.6733	Full Siblings
+0.2415	Full Siblings
+0.4906	Full Siblings
+0.5385	Full Siblings
+0.6481	Full Siblings
+0.634	Full Siblings
+0.6036	Full Siblings
+0.3888	Full Siblings
+0.5424	Full Siblings
+0.3692	Full Siblings
+0.4051	Full Siblings
+0.3044	Full Siblings
+0.4799	Full Siblings
+0.389	Full Siblings
+0.4386	Full Siblings
+0.3506	Full Siblings
+0.2919	Full Siblings
+0.5959	Full Siblings
+0.2104	Full Siblings
+0.5984	Full Siblings
+0.3339	Full Siblings
+0.4616	Full Siblings
+0.5385	Full Siblings
+0.5998	Full Siblings
+0.5342	Full Siblings
+0.3256	Full Siblings
+0.3413	Full Siblings
+0.5519	Full Siblings
+0.4608	Full Siblings
+0.585	Full Siblings
+0.249	Full Siblings
+0.5982	Full Siblings
+0.64	Full Siblings
+0.5989	Full Siblings
+0.7303	Full Siblings
+0.6168	Full Siblings
+0.5741	Full Siblings
+0.476	Full Siblings
+0.7804	Full Siblings
+0.4779	Full Siblings
+0.5787	Full Siblings
+0.496	Full Siblings
+0.3602	Full Siblings
+0.6262	Full Siblings
+0.211	Full Siblings
+0.3399	Full Siblings
+0.6144	Full Siblings
+0.6222	Full Siblings
+0.4378	Full Siblings
+0.4411	Full Siblings
+0.6409	Full Siblings
+0.5161	Full Siblings
+0.3356	Full Siblings
+0.694	Full Siblings
+0.7309	Full Siblings
+0.6012	Full Siblings
+0.7035	Full Siblings
+0.3709	Full Siblings
+0.4926	Full Siblings
+0.248	Full Siblings
+0.3918	Full Siblings
+0.748	Full Siblings
+0.235	Full Siblings
+0.6685	Full Siblings
+0.4597	Full Siblings
+0.6151	Full Siblings
+0.6534	Full Siblings
+0.7062	Full Siblings
+0.5897	Full Siblings
+0.523	Full Siblings
+0.5124	Full Siblings
+0.5863	Full Siblings
+0.5619	Full Siblings
+0.2105	Half Siblings
+0.3531	Half Siblings
+0.2916	Half Siblings
+0.1889	Half Siblings
+0.0664	Half Siblings
+0.1371	Half Siblings
+0.2932	Half Siblings
+0.5606	Half Siblings
+0.3172	Half Siblings
+0.2568	Half Siblings
+0.2629	Half Siblings
+0.0403	Half Siblings
+-0.1116	Half Siblings
+0.3562	Half Siblings
+0.1727	Half Siblings
+0.2058	Half Siblings
+0.2866	Half Siblings
+0.3737	Half Siblings
+0.1353	Half Siblings
+0.2201	Half Siblings
+0.5075	Half Siblings
+0.3973	Half Siblings
+0.0307	Half Siblings
+0.4623	Half Siblings
+0.3368	Half Siblings
+0.2674	Half Siblings
+0.1581	Half Siblings
+0.1921	Half Siblings
+0.2401	Half Siblings
+0.3658	Half Siblings
+0.1496	Half Siblings
+0.1141	Half Siblings
+0.3448	Half Siblings
+0.0041	Half Siblings
+0.1875	Half Siblings
+0.3178	Half Siblings
+0.2962	Half Siblings
+0.5829	Half Siblings
+0.1876	Half Siblings
+0.3226	Half Siblings
+0.5156	Half Siblings
+0.1626	Half Siblings
+0.4606	Half Siblings
+0.132	Half Siblings
+0.2568	Half Siblings
+0.2563	Half Siblings
+0.2699	Half Siblings
+0.1479	Half Siblings
+0.4142	Half Siblings
+0.1353	Half Siblings
+0.2223	Half Siblings
+0.4123	Half Siblings
+0.4673	Half Siblings
+0.3292	Half Siblings
+0.3664	Half Siblings
+0.1245	Half Siblings
+0.1234	Half Siblings
+0.0958	Half Siblings
+0.0637	Half Siblings
+0.3907	Half Siblings
+0.1468	Half Siblings
+0.2656	Half Siblings
+0.3144	Half Siblings
+0.61240000000000006	Half Siblings
+0.3664	Half Siblings
+0.2958	Half Siblings
+0.1545	Half Siblings
+0.3443	Half Siblings
+0.2079	Half Siblings
+0.2268	Half Siblings
+0.5698	Half Siblings
+0.1144	Half Siblings
+0.3101	Half Siblings
+0.5039	Half Siblings
+0.5657	Half Siblings
+0.1203	Half Siblings
+-0.1412	Half Siblings
+0.0211	Half Siblings
+0.2152	Half Siblings
+-0.0243	Half Siblings
+0.0092	Half Siblings
+0.3755	Half Siblings
+0.372	Half Siblings
+0.2898	Half Siblings
+0.3317	Half Siblings
+-0.102	Half Siblings
+0.131	Half Siblings
+0.0848	Half Siblings
+0.3414	Half Siblings
+0.3057	Half Siblings
+0.306	Half Siblings
+0.2935	Half Siblings
+0.3612	Half Siblings
+0.1652	Half Siblings
+0.4094	Half Siblings
+0.4117	Half Siblings
+0.1395	Half Siblings
+0.1388	Half Siblings
+0.0667	Half Siblings
+0.4235	Half Siblings
+0.2037	Unrelated
+0.0205	Unrelated
+0.0667	Unrelated
+0.2111	Unrelated
+0.0135	Unrelated
+-0.0587	Unrelated
+-0.0552	Unrelated
+0.1079	Unrelated
+-0.0819	Unrelated
+-0.0873	Unrelated
+-0.0388	Unrelated
+0.2053	Unrelated
+-0.1336	Unrelated
+-0.1093	Unrelated
+0.3616	Unrelated
+-0.2324	Unrelated
+-0.0981	Unrelated
+0.194	Unrelated
+0.1458	Unrelated
+0.2459	Unrelated
+0.0997	Unrelated
+-0.0545	Unrelated
+-0.0288	Unrelated
+0.1028	Unrelated
+-0.106	Unrelated
+0.0862	Unrelated
+0.1538	Unrelated
+0.0945	Unrelated
+0.1375	Unrelated
+-0.282	Unrelated
+-0.1998	Unrelated
+0.0836	Unrelated
+0.0538	Unrelated
+-0.0828	Unrelated
+0.0199	Unrelated
+0.0648	Unrelated
+0.1501	Unrelated
+-0.3212	Unrelated
+0.0775	Unrelated
+-0.1709	Unrelated
+0.0817	Unrelated
+-0.303	Unrelated
+-0.0989	Unrelated
+-0.0608	Unrelated
+-0.1813	Unrelated
+-0.2124	Unrelated
+0.0503	Unrelated
+0.0023	Unrelated
+0.0094	Unrelated
+0.1376	Unrelated
+0.2111	Unrelated
+-0.2853	Unrelated
+0.2698	Unrelated
+-0.3162	Unrelated
+-0.2243	Unrelated
+-0.2734	Unrelated
+-0.0209	Unrelated
+-0.024	Unrelated
+-0.1912	Unrelated
+-0.125	Unrelated
+-0.2077	Unrelated
+0.0262	Unrelated
+-0.1631	Unrelated
+-0.0542	Unrelated
+-0.1954	Unrelated
+0.2177	Unrelated
+0.1371	Unrelated
+-0.0667	Unrelated
+-0.078	Unrelated
+0.0843	Unrelated
+0.2304	Unrelated
+-0.0847	Unrelated
+-0.1802	Unrelated
+-0.3914	Unrelated
+0.0801	Unrelated
+-0.0609	Unrelated
+0.2066	Unrelated
+-0.1976	Unrelated
+-0.2037	Unrelated
+-0.1201	Unrelated
+0.1556	Unrelated
+0.0285	Unrelated
+-0.0117	Unrelated
+-0.0216	Unrelated
+0.0742	Unrelated
+-0.2042	Unrelated
+-0.147	Unrelated
+0.1413	Unrelated
+-0.2812	Unrelated
+-0.0201	Unrelated
+-0.2727	Unrelated
+-0.0599	Unrelated
+0.0957	Unrelated
+0.1766	Unrelated
+0.2648	Unrelated
+-0.1072	Unrelated
+-0.0075	Unrelated
+-0.1832	Unrelated
+0.1208	Unrelated
+0.262	Unrelated
