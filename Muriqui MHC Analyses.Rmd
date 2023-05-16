@@ -12,22 +12,22 @@ library(related) # for Queller-Goodnight R calculation
 library(tidyverse) # for data wrangling
 library(ggvenn) # for toy example Venn diagram
 library(skimr) # for quick summary statistics
-library(infer) # for `get_p_value()`
+library(infer) # for `get_p_value()` function
 library(cowplot) # for creating multipanel plots
-library(ggpubr) # for regression equations on plots
-library(DescTools) # KendallTauB
+library(ggpubr) # for adding regression equations to plots
+library(DescTools) # for `KendallTauB()` function to assess CI
 ```
 
 ```{r Load and Process Genotype Data}
-# Genotype data is held in two files, one with adult genotypes and one with all genotypes
+# Genotype data is held in two files, one with adult genotypes only and one with all genotypes
 adults_genos <- readgenotypedata("data/adults_genos.txt")
 all_genos <- readgenotypedata("data/all_genos.txt")
 loci <- read_tsv("data/loci.txt", col_names = TRUE) # locus names in order presented in genotypes table
-adults <- read_tsv("data/adults.txt", col_names = TRUE) # all adults names and sexes
-males <- adults %>% filter(sex == "M") %>% pull(ID)
-females <- adults %>% filter(sex == "F") %>% pull(ID)
+adults <- read_tsv("data/adults.txt", col_names = TRUE) # all adults names and sexes, plus individual heterozygosity and MHC allele diversity
+males <- adults %>% filter(sex == "M") %>% pull(ID) # all candidate sires
+females <- adults %>% filter(sex == "F") %>% pull(ID) # all dams plus 5 additional adult females
 
-# Set the random seed. We use the same random seed for each simulation to generate results for exact values reported in paper, but the seed can be anything! P values will change slightly, but results are unchanged...
+# Set the random seed to be used for all simulations. We set the same random seed to generate results for exact values reported in paper, but the seed can be anything... p values will change slightly, but results are qualitatively unchanged.
 seed <- 11539 
 ```
 
@@ -49,19 +49,53 @@ all_rel <- coancestry(
   ritland = 0)
 
 # Extract the pairwise R values and reformat columns
-adults_pairwise_R <- adults_rel$relatedness %>%
-  select(pair.no, ind1.id, ind2.id, quellergt) %>%
-  mutate(pair = paste0(ind1.id, "=", ind2.id)) # 2016 dyads... this is a half matrix
+adults_pairwise_R <-
+  adults_rel$relatedness %>%
+  select(ind1.id, ind2.id, quellergt) %>%
+  mutate(pair = paste0(ind1.id, "=", ind2.id)) # 2016 dyads... this is a half matrix represented in long (columnar) format, i.e., each dyad is included only once (e.g., A-B but not B-A)
 
-all_pairwise_R <- all_rel$relatedness %>%
-  select(pair.no, ind1.id, ind2.id, quellergt) %>%
-  mutate(pair = paste0(ind1.id, "=", ind2.id)) # 6105 dyads... this is a half matrix
+all_pairwise_R <-
+  all_rel$relatedness %>%
+  select(ind1.id, ind2.id, quellergt) %>%
+  mutate(pair = paste0(ind1.id, "=", ind2.id)) # 6105 dyads... again, this is a half matrix this is a half matrix represented in long (columnar) format
 
-# We want to keep these structures as half matrices to use in our simulations to test predictions 1, 2a, 2b, and 3a so as no not artificially double the the number of dyads in any dyad type category
+# We want to keep these structures as half matrices to use in our simulations to test predictions 1, 2a, 2b, and 3a so as to not artificially double the the number of dyads in any dyad type category. But we can use full matrices later to look up R values for a given dyad with the individuals in either order (e.g., A-B and B-A). The code below generates the "full" matrices...
+
+# We first make a temporary "second half" matrix in long format that reverses the order of individuals in the pair, which we then bind to the first half...
+ 
+temp <-
+  adults_pairwise_R %>%
+  mutate(
+    ind1.id.new = ind2.id,
+    ind2.id = ind1.id,
+    ind1.id = ind1.id.new,
+    pair = paste0(ind1.id, "=", ind2.id)
+  ) %>%
+  select(-c(ind1.id.new))
+
+adults_pairwise_R_full <-
+  bind_rows(adults_pairwise_R, temp)
+
+temp <-
+  all_pairwise_R %>%
+  mutate(
+    ind1.id.new = ind2.id,
+    ind2.id = ind1.id,
+    ind1.id = ind1.id.new,
+    pair = paste0(ind1.id, "=", ind2.id)
+  ) %>%
+  select(-c(ind1.id.new))
+
+all_pairwise_R_full <-
+  bind_rows( all_pairwise_R, temp)
+
+# Remove the temporary data structure 
+rm(list = c("temp"))
 ```
 
 ```{r Create Full Relatedness Matrices}
-# Adults
+# We also now create these relatedness matrices in matrix format rather than long (columnar) format. The matrices are all numeric, with individual IDs as row names and column names.
+# Adults...
 # Create a list of all unique adult IDs
 adults_id <- sort(unique(c(as.character(adults_pairwise_R$ind1.id), as.character(adults_pairwise_R$ind2.id))))
 
@@ -76,9 +110,9 @@ adults_R_matrix[as.matrix(adults_pairwise_R[, c("ind1.id", "ind2.id")])] <- adul
 
 # Fill the lower half of the matrix
 adults_R_matrix[as.matrix(adults_pairwise_R[, c("ind2.id", "ind1.id")])] <- adults_pairwise_R[,c("quellergt")] # R values
-# This is now a full dyadic R matrix of adults
+# This is now a full dyadic R matrix for adults
 
-# All individuals
+# All individuals...
 # Create a list of all unique individual IDs
 all_id <- sort(unique(c(as.character(all_pairwise_R$ind1.id), as.character(all_pairwise_R$ind2.id))))
 
@@ -93,9 +127,9 @@ all_R_matrix[as.matrix(all_pairwise_R[, c("ind1.id", "ind2.id")])] <- all_pairwi
 
 # Fill the lower half of the matrix
 all_R_matrix[as.matrix(all_pairwise_R[, c("ind2.id", "ind1.id")])] <- all_pairwise_R[,c("quellergt")] # R values
-# This is now a full dyadic R matrix of all individuals
+# This is now a full dyadic R matrix for all individuals
 
-# Save these data structures......
+# Save these data structures...
 adults_R_matrix %>%
   as.data.frame() %>%
   rownames_to_column(var = "ID") %>%
@@ -111,18 +145,21 @@ all_R_matrix %>%
 # Comparing Relatedness among Dyad Types in Adults
 
 ```{r Mean Relatedness by Dyad Type}
-# Using the "adult_pairwise_R" half matrix, which is in long format and includes the Queller-Goodnight estimated R as calculated by {related}, we add in information on sex of each adult, and then assign dyad.type as MM (male-male), FF (female-female), or MS (mixed sex)
+# Using the "adult_pairwise_R" half matrix, which is in long format and includes the Queller-Goodnight estimated R as calculated by {related}, we add in information on the sex of each adult, and then assign a dyad type as MM (male-male), FF (female-female), or MS (mixed sex)
 
 pairwise_R <- adults_pairwise_R %>% # use "adults_pairwise_R" rather than "all_pairwise_R"...
   left_join(., adults, by = c("ind1.id" = "ID")) %>%
   left_join(., adults, by = c("ind2.id" = "ID")) %>%
   rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
   mutate(dyad.type = paste0(ind1.sex, ind2.sex)) %>%
-  mutate(dyad.type = case_when(dyad.type == "MM" ~ "MM", # male-male
-                               dyad.type == "FF" ~ "FF", # female-female
-                               dyad.type == "MF" | dyad.type == "FM" ~ "MS")) # mixed sex
+  mutate(dyad.type = case_when(
+    dyad.type == "MM" ~ "MM", # male-male
+    dyad.type == "FF" ~ "FF", # female-female
+    dyad.type == "MF" | dyad.type == "FM" ~ "MS")) # mixed sex
+
 pairwise_R$dyad.type <- factor(pairwise_R$dyad.type, levels = c("FF", "MS", "MM")) # relevel for plotting
 
+# Then, we summarize mean R by dyad type
 obs_R <- pairwise_R %>%
   group_by(dyad.type) %>%
   summarize(mean.R = mean(quellergt)) %>%
@@ -167,13 +204,13 @@ dev.off()
 ```
 
 ```{r Testing Differences among Dyad Types}
-# To test for differences in mean R among different dyad types by permutation, we [1] shuffle each individual's sex within "pairwise_R", keeping the same number of individuals per sex category, [2] assign a new dyad type based on the shuffled sexes, and [3] recalculate mean R by dyad type for each replicate. We then compare the observed mean estimated R for each dyad type and the differences between mean R by dyad type to the relevant permutation distributions.
+# To test for differences in mean R among different dyad types by permutation, we [1] shuffle each individual's sex within the "pairwise_R" dataset, keeping the same number of individuals per sex category, [2] assign a new dyad type based on the shuffled sexes, and [3] recalculate mean R by dyad type for each replicate. We then compare the observed mean estimated R for each dyad type and the differences between mean R by dyad type to the relevant permutation distributions.
 
 set.seed(seed)
 
 reps <- 10000
 
-reps_R <- tibble(
+reps_R <- tibble( # create an empty tibble to hold results of each replicate
   FF = numeric(),
   MM = numeric(),
   MS = numeric())
@@ -192,10 +229,12 @@ for (i in 1:reps) {
     new.dyad.type == "MF" | new.dyad.type == "FM" ~ "MS",
     new.dyad.type == "FF" ~ "FF",
     new.dyad.type == "MM" ~ "MM"))
+  # then summarize mean R by dyad type...
   temp <- temp %>%
     group_by(new.dyad.type) %>%
     summarize(mean.R = mean(quellergt)) %>%
     pivot_wider(values_from = mean.R, names_from = new.dyad.type)
+  # and bind results in the reps_R data structure
     reps_R <- bind_rows(reps_R, temp)
 }
 
@@ -210,7 +249,7 @@ reps_R <- reps_R %>%
 ```
 
 ```{r Critical Values and P Values}
-# Calculate p values and critical values for observed statistics relative to permutation distribution
+# Calculate p values and critical values for observed statistics relative to the permutation distributions
 
 FF.crit <- quantile(
   reps_R %>% filter(dyad.type == "FF") %>% pull(mean.R),
@@ -281,7 +320,7 @@ summary <- reps_R %>%
   arrange(factor(dyad.type, levels = c("FF","MS","MM","FF.MS.diff","MM.MS.diff","MM.FF.diff")))
 
 summary <- bind_cols(summary, crit.value, p.value) %>%
-  mutate(color = if_else(`p.value` < 0.05, "blue", "red"))
+  mutate(color = if_else(p.value < 0.05, "blue", "red")) # color by p value
 ```
 
 ```{r Plot Results}
@@ -340,7 +379,7 @@ p <- ggplot(data = reps_R, aes(x = mean.R)) +
 
 p
 
-# NOTE: Visualizing this plot will give some warnings about missing values for geom_vline() and geom_rect()... this is fine, just a result of how the summary table for adding critical values regions is structured
+# NOTE: Visualizing this plot will give some warnings about missing values for geom_vline() and geom_rect()... this is fine, just a result of how the summary table for adding critical value regions is structured
 ```
 
 ```{r Save Figure to PDF}
@@ -351,7 +390,7 @@ dev.off()
 
 # Basic MHC Summary Statistics
 
-We first want to summarize, for each male and female, the total number of MHC alleles they have. So, we read in two data files of raw MHC allele presence/absence data and calculate the total MHC diversity for each individual. These are two files with rows containing male and female IDs, respectively, and columns scoring the presence/absence (1/0) of each of 22 MHC alleles.
+We first want to summarize, for each male and female, the total number of MHC alleles they have. So, we read in two data files of raw MHC allele presence/absence data and calculate the total MHC diversity for each individual. There are two files with rows containing male and female IDs, respectively, and columns scoring the presence/absence (1/0) of each of 22 MHC alleles.
 
 ```{r MHC Summary Statistics}
 males.data <- read_table("data/mhc_males.txt", col_names = TRUE)
@@ -371,9 +410,7 @@ females.div <- females.data %>%
 
 # Generate MHC Diversity and Dissmilarity Matrices and Relatedness Matrix
 
-We now want to create several data matrices we will need to test hypotheses.
-
-The following snippet of code provides visualization of a toy example of how we summarize MHC allele diversity, sharing, dissimilarity, and uniqueness for a pair of individuals, say, female "A" and male "B"...
+We now want to create several data matrices we will need to test hypotheses. The following snippet of code provides visualization of a toy example of how we summarize MHC allele diversity, sharing, dissimilarity, and uniqueness for a pair of individuals, say, female "A" and male "B"...
 
 ```{r Venn Diagram Example}
 set.seed(seed)
@@ -477,6 +514,13 @@ relatedness <- as.matrix(relatedness)
 
 The dimensions of the five matrices we have just created -- sharing, male.diversity, dissimilarity, male.uniqueness, and relatedness -- should all be 27 females by 32 males.
 
+```{r Show Dimensions}
+dim(sharing)
+dim(male.diversity)
+dim(dissimilarity)
+dim(male.uniqueness)
+dim(relatedness)
+```
 # Simulations to Test Predictions
 
 All simulations are based on the same number of replicates, set below.
@@ -502,7 +546,7 @@ candidates <- names(overview)[-3:-1] # all possible candidate sire names, which 
 overview <- as.matrix(overview[, 4:ncol(overview)]) # subset and convert to matrix...
 dimnames(overview) = list(dams, candidates) # assign dam name as rowname
 
-# This is "overview" matrix now contains information on whether each male was considered a candidate sire or not for each of the 47 offspring in the dataset, with dam ID as the rowname and candidate sire ID as the column name
+# The "overview" matrix now contains information on whether each male was considered a candidate sire or not for each of the 47 offspring in the dataset, with dam ID as the rowname and candidate sire ID as the column name
 ```
 
 We then create "male.diversity.updated" matrix by extracting the appropriate value from the original "male.diversity" matrix for each combination of dam and male for only those cells in "overview" where the value is `1`.
@@ -917,7 +961,7 @@ p
 dev.off()
 ```
 
-## Comparing Mean Dam-Sire R to Mean R among Kinship Classes
+## Comparing Mean Dam-Sire R to Mean R among Simulated Kinship Classes
 
 ```{r Calculate Mean R among Sets of Dyads of Different Kin Classes}
 # We now need to generate distributions of expected mean R values for each dyad class. To do this, we draw sets of random samples of 47 dyads of each dyad type and calculate mean R for each sample...
@@ -1040,7 +1084,6 @@ write_tsv(sim.res, "outputs/kinship.simulation_results.txt") # based on only adu
     xlab("Dyad Type") +
     ylab("Estimated R") +
     ggtitle("Pairwise R Estimates\nfor Known Dam-Sire Dyads") +
-    # geom_point(data = close_kin_among_ds, aes(x = dyad.type, y = quellergt), color = "black", size = 4, shape = 23, fill = "red", alpha = 0.8) +
     theme_light() +
     theme(
       plot.margin =  unit(c(0.5, 1, 1, 1), "cm"),
@@ -1054,7 +1097,7 @@ write_tsv(sim.res, "outputs/kinship.simulation_results.txt") # based on only adu
   )
 ```
 
-```{r Calculate P Values for Dam-Sire to Kinship Class Comparison}
+```{r Calculate P Values for Dam-Sire to Simulated Kinship Class Comparison}
 # Compare to Parent-Offspring
 po <- sim.res %>% filter(dyad.type == "Mean PO")
 (p_value <- (sum(po$mean.R <= abs(mean_dam_sire)) + sum(-1 * po$mean.R >= -1 * abs(mean_dam_sire))) / reps) # p << 0.05
@@ -1074,7 +1117,7 @@ un <- sim.res %>% filter(dyad.type == "Mean UN")
 
 # Kinship Analyses with KINGROUP2 Data
 
-Additional kinship analyses use KINGROUP2's implementation of the Queller-Goodnight R estimate, which is slightly different than that calculated by {related}. In the analyses below, involving the comparisons of the number of inferred close kin for each individual as explored using KINSGROUP2, we use the KINGROUP2 estimator of R because we are also looking at the results of KINGROUP2's likelihood ratio tests. Nonetheless, the correlation between {related} and KINGROUP2's estimates of dyadic R are extremly similar, which we show initially.
+Additional kinship analyses use KINGROUP2's implementation of the Queller-Goodnight R estimate, which is slightly different than that calculated by {related}. In the analyses below, we use the KINGROUP2 estimator of R because we are also looking at the results of KINGROUP2's likelihood ratio tests. Nonetheless, the correlation between {related} and KINGROUP2's estimates of dyadic R are extremly similar, which we show initially.
 
 ```{r Load Estimated R Values from KINGROUP2}
 # These are held in two additional files, one with adult genotypes and corresponding KINGROUP2 estimates of pairwise R and one with all genotypes and corresponding KINGROUP2 estimates of pairwise R
@@ -1163,11 +1206,11 @@ dev.off()
 ## Comparing Mean R among Dyad Types
 
 ```{r Load Dyad Types and Calculate Mean R}
-# We first load in a dataset of dyads and assigned dyad types to compare, based on sex-class and on parentage results. Dyads among adults are either male-male (MM), female-female (FF), or mixed-sex (MS), some of which are also dam-sire (DS) dyads. Dyads of interest involving adults and immatures can be dam-offspring (DO) or sire-offspring (SO). Additionally, from parentage analyses, we know that some dyads are maternal half-siblings (MHS), paternal half siblings (PHS), or full-siblings (FS). Finally, we know that some pairs of males constitute successive sires (SS) of offspring of the same dam.
+# We first load in a dataset of dyads and assigned dyad types to compare, based on individuals' sex classes and on parentage results. Dyads among adults are either male-male (MM), female-female (FF), or mixed-sex (MS), some of which are also dam-sire (DS) dyads. Dyads of interest involving adults and immatures can be dam-offspring (DO) or sire-offspring (SO). Additionally, from parentage analyses, we know that some dyads are maternal half-siblings (MHS), paternal half siblings (PHS), or full-siblings (FS). Finally, we know that some pairs of males constitute successive sires (SS) of offspring of the same dam.
 dyads <- read_tsv("data/dyad_types.txt", col_names = TRUE) %>%
   mutate(pair = paste0(ind1.id, "=", ind2.id))
 
-# Then we join these dyad types to R estimates coming from KINGROUP2 and calculate the mean R by dyad type
+# We then join these dyads to the R estimates coming from KINGROUP2 and calculate the mean R by dyad type
 dyads <- dyads %>%
   left_join(., all_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair"))
 
@@ -1212,8 +1255,8 @@ p
 dev.off()
 ```
 
-```{r Comparisons of Dam-Sire Dyads to Kinship Classes and Adult Dyad Types}
-# Define a function to select data for dyad types to be compared and then test for differences in mean R by dyad type using a permutation approach
+```{r Comparisons of Dam-Sire Dyads to Known Kinship Classes and Adult Dyad Types}
+# Define a function to select data for dyad types to be compared and then test for differences in mean R by dyad type using a permutation approach. The function prints out a plot of the observed difference in mean R for the comparison along with the permutation distribution as well as the p value for the comparison, and it returns the permutation distribution for the comparison.
 compare_dyad_types <- function(df, types, reps = 10000){
   # two dyad types will be compared...
   # filter data...
@@ -1254,10 +1297,9 @@ compare_dyad_types <- function(df, types, reps = 10000){
 
   # calculate p value associated with observed difference - two different methods
   p_value_1 <- (sum(rep.res$diff >= abs(obs$diff)) + sum(rep.res$diff <= -1 * abs(obs$diff))) / reps
-  print(p_value_1)
+  print(paste0("p value {direct calculation}: ", p_value_1))
   p_value_2 <- get_p_value(as.data.frame(rep.res$diff), obs$diff, direction = "both") %>% pull(p_value)
-  print(p_value_2)
-  
+  # print(paste0("p value {infer}: ", p_value_2))
   return(rep.res)
 }
 
@@ -1292,7 +1334,7 @@ ss_mm <- compare_dyad_types(dyads, c("SS", "MM"))
 ```
 
 ```{r Comparison among Adult Dyad Types}
-# And, finally, we can compare among same- and mixed-sex adult dyads as we did previously with the adults only estimated R values from {related}...
+# And, finally, we can compare mean R among same- and mixed-sex adult dyads using estimated R values from all individuals in KINGROUP2 (as we did previously with estimated R values for adults only from {related})... this extra analysis is not reported in the publication, but supports the conclusions presented therein, i.e., that adult males are more closely related, on average, than expected by chance; that adult females are less closely related, on average, than expected by chance; and that adult males are, on average, more closely related than adult females.
 
 compare_sex_classes <- function(df, classes, reps = 10000){
   # can have more than two classes but first two will be the ones compared...
@@ -1350,10 +1392,9 @@ compare_sex_classes <- function(df, classes, reps = 10000){
 
   # calculate p value associated with comparison to expected - two different methods
   p_value_1 <- sum(rep.res$FF < obs$FF)/reps # one-tailed test
-  print(p_value_1)
-  
+  print(paste0("p value FF {direct calculation}: ", p_value_1))
   p_value_2 <- get_p_value(as.data.frame(rep.res$FF), obs$FF, direction = "left") %>% pull(p_value)
-  print(p_value_2)
+  print(paste0("p value FF {infer}: ", p_value_2))
   
   # male-male dyads
   p_MM <- ggplot(rep.res, aes(x = MM)) +
@@ -1363,9 +1404,9 @@ compare_sex_classes <- function(df, classes, reps = 10000){
 
   # calculate p value associated with comparison to expected - two different methods
   p_value_1 <- sum(rep.res$MM > obs$MM)/reps # one-tailed test
-  print(p_value_1)
+  print(paste0("p value MM {direct calculation}: ", p_value_1))
   p_value_2 <- get_p_value(as.data.frame(rep.res$MM), obs$MM, direction = "right") %>% pull(p_value)
-  print(p_value_2)
+  print(paste0("p value MM {infer}: ", p_value_2))
 
   # male-female difference
   p_MM_FF_difference <- ggplot(rep.res, aes(x = MM.FF.diff)) +
@@ -1375,9 +1416,9 @@ compare_sex_classes <- function(df, classes, reps = 10000){
   
   # calculate p value associated with observed difference - two different methods
   p_value_1 <- sum(rep.res$MM.FF.diff > obs$MM.FF.diff)/reps # one-tailed test
-  print(p_value_1)
+  print(paste0("p value MM-FF diff {direct calculation}: ", p_value_1))
   p_value_2 <- get_p_value(as.data.frame(rep.res$MM.FF.diff), obs$MM.FF.diff, direction = "right") %>% pull(p_value)
-  print(p_value_2)
+  print(paste0("p value MM-FF diff {infer}: ", p_value_2))
   
   return(rep.res)
 }
@@ -1511,22 +1552,6 @@ close_kin_among_ds <- bind_rows(
   are_any_parents_po) %>%
   dplyr::select("ind1.id", "ind2.id", "pair")
 
-# We then get the estimated R for these dyads based on the {related} algorithm by merging these with "adults_pairwise_R", but first we need to convert "adults_pairwise_R" to a full matrix in order to be able to look up any dyad. To do this, we make a "second half" for the matrix in long format and bind it to the first.
- 
-adults_pairwise_R_second_half <-
-  adults_pairwise_R %>%
-  mutate(
-    ind1.id.new = ind2.id,
-    ind2.id = ind1.id,
-    ind1.id = ind1.id.new,
-    pair = paste0(ind1.id, "=", ind2.id)
-  ) %>%
-  select(-c(ind1.id.new))
-
-adults_pairwise_R_full <- bind_rows(
-  adults_pairwise_R,
-  adults_pairwise_R_second_half) %>% select(-c(pair.no))
-
 close_kin_among_ds <- close_kin_among_ds %>%
   mutate(dyad.type = "Dam-Sire") %>%
   left_join(., adults_pairwise_R_full, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair"))
@@ -1547,27 +1572,27 @@ dev.off()
 # Heterozygosity and MHC Diversity
 
 ```{r Correlation between Individual H and MHC Diversity}
-# The dataframe "adults" contains information on individual heterozygosity (proportion of typed loci that are heterozygous) and number of MHC alleles. Here, we look at whether these are related.
+# The data set "adults", which we have already loaded in, contains information on individual heterozygosity (proportion of typed loci that are heterozygous) and number of MHC alleles. Here, we look at whether these are two variables are related.
 
-# overall...
-cor.test(adults$h.indiv, adults$mhc.diversity, method = "kendall")
-
-KendallTauB(adults$h.indiv,adults$mhc.diversity, conf.level = 0.95)
-
-# among dams...
+# Among dams...
 dams <- adults %>% filter(sex == "F", !is.na(mhc.diversity))
 cor.test(dams$h.indiv, dams$mhc.diversity, method = "kendall")
 KendallTauB(dams$h.indiv, dams$mhc.diversity, conf.level = 0.95)
 
-# among sires...
+# Among sires...
 sires <- adults %>% filter(sex == "M", !is.na(mhc.diversity))
 cor.test(sires$h.indiv, sires$mhc.diversity, method = "kendall")
 KendallTauB(sires$h.indiv, sires$mhc.diversity, conf.level = 0.95)
+
+# And overall...
+cor.test(adults$h.indiv, adults$mhc.diversity, method = "kendall")
+
+KendallTauB(adults$h.indiv,adults$mhc.diversity, conf.level = 0.95)
 ```
 
 # Relatedness and MHC Dissimilarity
 ```{r Correlation between Estimated R and Dissimilarity}
-# Load in summary of dissimilarity among all pairs of adults and merge with pairwise estimated R from {related}. The dissimilarity data is essentially a half matrix of dissimilarity among all dyads with NA added for any dyads involving 5 adult females who were not typed for MHC.
+# Finally, we can look at the relationship across dyads between estimated R and MHC dissimilarity, although this is not an analysis presented in the publication. We load in a summary of dissimilarity among all pairs of adults (including same-sex dyads) and merge this with pairwise estimated R from {related}. The dissimilarity data is essentially a half matrix of dissimilarity among all dyads, with "NA" added for any dyads involving one of the five adult females who were not typed for MHC.
 
 r_and_dissimilarity <- read_tsv("data/mhc_dissimiliarity.txt", col_names = TRUE) %>%
   left_join(., adults_pairwise_R_full, by = c("ind1.id"="ind1.id", "ind2.id"="ind2.id", "pair"="pair"))
@@ -1581,5 +1606,5 @@ p <- ggplot(data = r_and_dissimilarity, aes(x=quellergt, y= mhc.dissimilarity)) 
 m <- lm(mhc.dissimilarity ~ quellergt, data = r_and_dissimilarity)
 summary(m)
 
-# There is a slight negative relationship here, with more closely related dyads being less dissimilary at the MHC.
+# There is a slight negative relationship between relatedness and MHC dissimilarity, with more closely related dyads, not surprisingly, being less "dissimilar" at the MHC. Still, this relationship is weak.
 ```
