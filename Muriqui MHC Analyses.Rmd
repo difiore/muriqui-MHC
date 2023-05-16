@@ -1547,7 +1547,7 @@ dev.off()
 # Heterozygosity and MHC Diversity
 
 ```{r Correlation between Individual H and MHC Diversity}
-# The dataframe "adults" contains information on individual heterozygosity (proportion of typed loci that are heterozygous) and number of MHC alleles.
+# The dataframe "adults" contains information on individual heterozygosity (proportion of typed loci that are heterozygous) and number of MHC alleles. Here, we look at whether these are related.
 
 # overall...
 cor.test(adults$h.indiv, adults$mhc.diversity, method = "kendall")
@@ -1567,18 +1567,19 @@ KendallTauB(sires$h.indiv, sires$mhc.diversity, conf.level = 0.95)
 
 # Relatedness and MHC Dissimilarity
 ```{r Correlation between Estimated R and Dissimilarity}
-# load in summary of dissimilarity among all pairs and merge with pairwise estimated R from {related}
-r_and_diss <- read_tsv("data/mhc_dissimiliarity.txt", col_names = TRUE) %>%
+# Load in summary of dissimilarity among all pairs of adults and merge with pairwise estimated R from {related}. The dissimilarity data is essentially a half matrix of dissimilarity among all dyads with NA added for any dyads involving 5 adult females who were not typed for MHC.
+
+r_and_dissimilarity <- read_tsv("data/mhc_dissimiliarity.txt", col_names = TRUE) %>%
   left_join(., adults_pairwise_R_full, by = c("ind1.id"="ind1.id", "ind2.id"="ind2.id", "pair"="pair"))
 
-cor.test(r_and_diss$quellergt, r_and_diss$mhc.dissimilarity, method = "kendall")
+cor.test(r_and_dissimilarity$quellergt, r_and_dissimilarity$mhc.dissimilarity, method = "kendall")
 
-KendallTauB(r_and_diss$quellergt, r_and_diss$mhc.dissimilarity, conf.level = 0.95)
+KendallTauB(r_and_dissimilarity$quellergt, r_and_dissimilarity$mhc.dissimilarity, conf.level = 0.95)
 
-p <- ggplot(data = r_and_diss, aes(x=quellergt, y= mhc.dissimilarity)) + geom_point() + geom_smooth (method = "lm", se=TRUE)
+p <- ggplot(data = r_and_dissimilarity, aes(x=quellergt, y= mhc.dissimilarity)) + geom_point() + geom_smooth (method = "lm", se=TRUE)
 
-p <- ggplot(data = r_and_diss, aes(x=as.factor(mhc.dissimilarity), y= quellergt)) + geom_boxplot()
-
-m <- lm(mhc.dissimilarity ~ quellergt, data = r_and_diss)
+m <- lm(mhc.dissimilarity ~ quellergt, data = r_and_dissimilarity)
 summary(m)
+
+# There is a slight negative relationship here, with more closely related dyads being less dissimilary at the MHC.
 ```
