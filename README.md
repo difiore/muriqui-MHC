@@ -13,8 +13,8 @@ The RMarkdown document titled "Muriqui MHC Analyses.Rmd" includes R code to:
 - Generate save various useful data structures of interest (e.g., relatedness matrices, simulation results).
 - Generate and save plots presented in the manuscript and in ESM.
 
-## **data** Directory
-The **data** directory includes the following files:
+## ***data*** Directory
+The ***data*** directory includes the following files:
 - **adults_genos.txt** = 15-loci genotypes for adults in the Matão group (N = 64: 32 males and 32 females).
 - **adults_kingroup2.txt** = genotype data and estimated Queller-Goodnight R values for all adult dyads, as calculated by the software KINGROUP2.
 - **adults.txt** = ID, sex, individual heterozygosity, and number of unique MHC alleles for adults in the Matão group (N = 64: 32 males and 32 females). Note that for five females, no information is presented on MHC diversity because only confirmed dams were typed for MHC.
@@ -42,8 +42,8 @@ NOTES:
 - The parentage information presented in **parentage_and_candidates.txt** is included in ESM Table4 with slightly different formatting.
 - All data files are in plain text (".txt") tab-separated value format, with the exception of **adults_kingroup2.txt**, and **all_kingroup2.txt**, which are in comma-separated value format.
 
-## **data/kingroup2** Directory
-The **data/kingroup2** directory includes the results of running likelihood tests in the software KINGROUP2 to evaluate the hypotheses of dyads being [1] full siblings versus unrelated, [2] half siblings versus unrelated, or [3] parent-offspring versus unrelated based on each of the two genotype datasets ("adults only" and "all individuals"). These files have the following self-explanatory names:
+## ***data/kingroup2*** Directory
+The ***data/kingroup2*** directory includes the results of running likelihood tests in the software KINGROUP2 to evaluate the hypotheses of dyads being [1] full siblings versus unrelated, [2] half siblings versus unrelated, or [3] parent-offspring versus unrelated based on each of the two genotype datasets ("adults only" and "all individuals"). These files have the following self-explanatory names:
 - **FS_vs_UN_adult.txt**
 - **FS_vs_UN_all.txt**
 - **HS_vs_UN_adult.txt**
@@ -54,8 +54,8 @@ The **data/kingroup2** directory includes the results of running likelihood test
 NOTES:
 - These files are lightly edited from the original KINGROUP2 output to include just the likelihood ratio test results (genotype, per locus allele frequency, and estimated R blocks are omitted).
 
-## **outputs** Directory
-The **outputs** directory is where select intermediate data structures are saved during execution of the ".Rmd" document.
+## ***outputs*** Directory
+The ***outputs*** directory is where select intermediate data structures are saved during execution of the ".Rmd" document.
 
-## **figures** Directory
-The **figures** Directory is where select plots (including those presented in the main manuscript and in ESM) are saved during execution of the ".Rmd" document.
+## ***figures*** Directory
+The ***figures*** Directory is where select plots (including those presented in the main manuscript and in ESM) are saved during execution of the ".Rmd" document.
