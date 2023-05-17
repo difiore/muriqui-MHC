@@ -1,6 +1,6 @@
 ---
 title: "Muriqui MHC Analyses"
-author: "Anthony Di Fiore"
+author: "Anthony Di Fiore and Paulo Chaves"
 date: "2023-05-06"
 output: html_document
 ---
