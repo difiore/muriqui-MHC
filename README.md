@@ -5,12 +5,12 @@ This repository contains data and code used for the analyses presented in the ma
 
 The RMarkdown document titled "Muriqui MHC Analyses.Rmd" includes R code to:
 - Read genotype data and construct matrices of estimated dyadic relatedness (Queller-Goodnight R) among pairs of either adult or all individuals in the population using the {related} package.
-- Compare mean dyadic relatedness among different classes of adult dyads (male-male, female-female, and moxed sex) to those expected by chance via permutation.
+- Compare mean dyadic relatedness among different classes of adult dyads (male-male, female-female, and mixed sex) to those expected by chance via permutation.
 - Read MHC variation data for individual dams and potential sires.
-- Construct matrices of female-male allele sharing, male allelic diversity, female-male allele dissimilarity, male allelic uniqueness, and female- male relatedness between dams and potential sires of those dams offspring, using long-term demographic data to take into account male "availability" for siring (>5 years old, present in the group at time of each offspring's conception).
+- Construct matrices of female-male allele sharing, male allelic diversity, female-male allelic dissimilarity, male allelic uniqueness, and female-male relatedness between dams and potential sires of those dams' offspring, using long-term demographic data to take into account male "availability" for siring (>5 years old, present in the group at time of each offspring's conception).
 - Conduct genetic simulations via permutation to test predictions outlined in the manuscript about the relationship between patterns of parentage and MHC and neutral genetic variation among dams and sires.
 - Conduct various additional analyses presented in the manuscript.
-- Generate save various useful data structures of interest (e.g., relatedness matrices, simulation results).
+- Generate and save various useful data structures of interest (e.g., relatedness matrices, simulation results).
 - Generate and save plots presented in the manuscript and in ESM.
 
 ## ***data*** Directory
