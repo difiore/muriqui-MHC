@@ -1,7 +1,7 @@
 ---
 title: "Muriqui MHC Analyses"
 author: "Anthony Di Fiore and Paulo Chaves"
-date: "2023-05-06"
+date: "2023-07-03"
 output: html_document
 ---
 
@@ -410,7 +410,7 @@ females.div <- females.data %>%
 
 # Generate MHC Diversity and Dissmilarity Matrices and Relatedness Matrix
 
-We now want to create several data matrices we will need to test hypotheses. The following snippet of code provides visualization of a toy example of how we summarize MHC allele diversity, sharing, dissimilarity, and uniqueness for a pair of individuals, say, female "A" and male "B"...
+We now want to create several data matrices we will need to test hypotheses. The following snippet of code provides visualization of a toy example of how we summarize MHC allele diversity, sharing, dissimilarity, and distinctiveness for a pair of individuals, say, female "A" and male "B"...
 
 ```{r Venn Diagram Example}
 set.seed(seed)
@@ -427,7 +427,7 @@ ggvenn( # Venn diagram of allelic overlap
   )
 ```
 
-Here, female "A" has seven different alleles and male "B" has six alleles. This is their allelic *diversity*. The overlap area represents allele *sharing* between female "A" and male "B" -- they have three alleles in common. The blue area represents alleles *unique* to female "A" (four alleles), the yellow area represents alleles *unique* to male "M" (three alleles), and the blue + yellow area, exclusive of the area of overlap, represents *dissimilarity* between female "A" and male "B", i.e., the total number of alleles present in the pair that they do not have in common (seven alleles).
+Here, female "A" has seven different alleles and male "B" has six alleles. This is their allelic *diversity*. The overlap area represents allele *sharing* between female "A" and male "B" -- they have three alleles in common. The blue area represents alleles *unique* or *distinctive* to female "A" (four alleles), the yellow area represents alleles *unique* or *distinctive* to male "M" (three alleles), and the blue + yellow area, exclusive of the area of overlap, represents *dissimilarity* between female "A" and male "B", i.e., the total number of alleles present in the pair that they do not have in common (seven alleles).
 
 ## Diversity
 
@@ -447,7 +447,7 @@ male.diversity <- females.id %*% t(males.div)
 
 ## Dissimilarity
 
-To test P2a and P2b, about DISSIMILARITY between males and females, we need to create matrices that summarize aspects of MHC ALLELE SHARING AND NONSHARING between dams and possible sires. Again, these matrices should consist of a row for each female dam in the population and a column for each male. Cell values for these matrices indicate the number of MHC alleles that the particular combination of dam and male have in common ("sharing"), do not have in common ("dissimilarity"), or are unique in one or the other sex "uniqueness".
+To test P2a and P2b, about DISSIMILARITY between males and females, we need to create matrices that summarize aspects of MHC ALLELE SHARING AND NONSHARING between dams and possible sires. Again, these matrices should consist of a row for each female dam in the population and a column for each male. Cell values for these matrices indicate the number of MHC alleles that the particular combination of dam and male have in common ("sharing"), do not have in common ("dissimilarity"), or are unique in one or the other sex ("distinctiveness").
 
 We first reformat the tables summarizing MHC allele presence/absence (1/0) in males and females, respectively, into numeric data matrices where row attributes are individual IDs and columns attributes are the presence/absence (1/0) of each MHC allele. These matrixare useful for quickly constructing cross-tabulations for allele sharing and nonsharing for different pairs of individuals.
 
@@ -479,10 +479,10 @@ dissimilarity <- ncol(females.alleles.matrix) -
 # This is now a dissimilarity matrix... the number of alleles present in either individual that not shared between each female (rows) and male (columns)
 ```
 
-Finally, we also create a matrix of male "uniqueness" relative to each female, i.e., the total number of alleles a male has that each female does not, as follows...
+Finally, we also create a matrix of male "distinctiveness" relative to each female, i.e., the total number of alleles a male has that each female does not, as follows...
 
-```{r Male Uniqueness Matrix}
-male.uniqueness <- (!females.alleles.matrix) %*% t(males.alleles.matrix)
+```{r Male Distinctiveness Matrix}
+male.distinctiveness <- (!females.alleles.matrix) %*% t(males.alleles.matrix)
 # This is now a matrix of how many alleles each male (columns) has that are different from those found in each particular female (rows)
 ```
 
@@ -512,13 +512,13 @@ relatedness <- as.matrix(relatedness)
 # This is now a matrix of estimated R between each female (rows) and each male (columns) in the dataset
 ```
 
-The dimensions of the five matrices we have just created -- sharing, male.diversity, dissimilarity, male.uniqueness, and relatedness -- should all be 27 females by 32 males.
+The dimensions of the five matrices we have just created -- sharing, male.diversity, dissimilarity, male.distinctiveness, and relatedness -- should all be 27 females by 32 males.
 
 ```{r Show Dimensions}
 dim(sharing)
 dim(male.diversity)
 dim(dissimilarity)
-dim(male.uniqueness)
+dim(male.distinctiveness)
 dim(relatedness)
 ```
 # Simulations to Test Predictions
@@ -644,7 +644,7 @@ male.diversity.plot <- ggplot(
 male.diversity.plot
 ```
 
-## P2a and P2b - MHC DISSMILARITY and UNIQUENESS
+## P2a and P2b - MHC DISSMILARITY and DISTINCTIVENESS
 
 One way look at whether dam-sire pairs reflect disassortative mating is to do a similar simulation to that conducted above using the *dissimilarity* dataset. To do this, though, we need to create an updated version of the "dissimilarity" data matrix that, as above, duplicates lines corresponding to additional offspring for each female and has `NA`s in cells for where an given male could not be a potential sire for the offspring in question. The process to create this updated matrix is the same as followed above.
 
@@ -732,35 +732,35 @@ dissimilarity.plot <- ggplot(
 dissimilarity.plot
 ```
 
-As a second test relevant to this hypothesis, we can also examine whether dams have offspring with sires that have a greater number of *unique* MHC alleles relative to themselves. For this we would use the data in matrix "male.uniqueness", again updating that matrix to take into account the fact that some females had more than one offspring in our dataset and that, for some offspring, certain males were not available as potential sires.
+As a second test relevant to this hypothesis, we can also examine whether dams have offspring with sires that have a greater number of *distinct* MHC alleles relative to themselves. For this we would use the data in matrix "male.distinctiveness", again updating that matrix to take into account the fact that some females had more than one offspring in our dataset and that, for some offspring, certain males were not available as potential sires.
 
-```{r Updated Male Uniqueness Matrix}
+```{r Updated Male Distinctiveness Matrix}
 # Create an empty matrix that we will fill with appropriate values
-male.uniqueness.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
+male.distinctiveness.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
 
-# Extract values from male.uniqueness only where the overview matrix indicates a male could be a potential sire of each dams' offspring
+# Extract values from male.distinctiveness only where the overview matrix indicates a male could be a potential sire of each dams' offspring
 for (i in 1:nrow(overview)) {
-  for (j in dimnames(male.uniqueness.updated)[[2]]) {
-    male.uniqueness.updated[i,j] <- overview[i,j] * male.uniqueness[rownames(male.uniqueness.updated)[[i]], j]
+  for (j in dimnames(male.distinctiveness.updated)[[2]]) {
+    male.distinctiveness.updated[i,j] <- overview[i,j] * male.distinctiveness[rownames(male.distinctiveness.updated)[[i]], j]
   }
 }
 
 # To save this data structure...
-male.uniqueness.updated %>%
+male.distinctiveness.updated %>%
   as.data.frame() %>%
   rownames_to_column(var = "ID") %>%
   as_tibble() %>%
-  write_tsv(file = "outputs/male.uniqueness.matrix.txt")
+  write_tsv(file = "outputs/male.distinctiveness.matrix.txt")
 ```
 
-We then run an analogous simulation to those above. This time, the result of each simulation is the average number of unique alleles among each set of simulated sires, and the null distribution of this statistic is held in `sim.male.uniqueness$stat`.
+We then run an analogous simulation to those above. This time, the result of each simulation is the average number of unique alleles among each set of simulated sires, and the null distribution of this statistic is held in `sim.male.distinctiveness$stat`.
 
 ```{r Male Uniqueness Simulation}
 set.seed(seed)
 
-sim.male.uniqueness <- replicate(
+sim.male.distinctiveness <- replicate(
   reps,
-  apply(male.uniqueness.updated, 1, function(x) sample(x[!is.na(x)], 1))
+  apply(male.distinctiveness.updated, 1, function(x) sample(x[!is.na(x)], 1))
   ) %>%
   t() %>%
   as_tibble() %>% 
@@ -770,31 +770,31 @@ sim.male.uniqueness <- replicate(
   summarize(stat = mean(value))
 ```
 
-As above, we extract observed uniqueness among actual sires relative to dams by pulling the relevant data from the original "male.uniqueness" matrix and calculating the average of these values...
+As above, we extract observed distinctiveness among actual sires relative to dams by pulling the relevant data from the original "male.distinctiveness" matrix and calculating the average of these values...
 
-```{r Observed Mean Male Uniqueness}
-male.uniqueness.obs <- vector()
+```{r Observed Mean Male Distinctiveness}
+male.distinctiveness.obs <- vector()
 for (i in 1:length(offspring)) {
-  male.uniqueness.obs[i] <- male.uniqueness[dams[i], sires[i]]
+  male.distinctiveness.obs[i] <- male.distinctiveness[dams[i], sires[i]]
 }
 
-mean.male.uniqueness <- mean(male.uniqueness.obs)
+mean.male.distinctiveness <- mean(male.distinctiveness.obs)
 ```
 
-Because we are testing the one-tailed hypotheses of higher allelic uniquness among the set of dam-actual sire pairs than among dam-random sire pairs, the critical value of interest corresponds to the 95th quantile of the simulation distribution.
+Because we are testing the one-tailed hypotheses of higher allelic distinctiveness among the set of dam-actual sire pairs than among dam-random sire pairs, the critical value of interest corresponds to the 95th quantile of the simulation distribution.
 
-The associated p value is simply the proportion of simulation runs where the average male uniqueness among sets of random sires exceeds that among observed in the set of real sires.
+The associated p value is simply the proportion of simulation runs where the average male distinctiveness among sets of random sires exceeds that among observed in the set of real sires.
 
 ```{r Critical Value and P Value}
-(male.uniqueness.crit.val <- quantile(sim.male.uniqueness$stat, c(0.95)))
+(male.distinctiveness.crit.val <- quantile(sim.male.distinctiveness$stat, c(0.95)))
 
-(p.value <- sum(sim.male.uniqueness$stat > mean.male.uniqueness)/reps)
+(p.value <- sum(sim.male.distinctiveness$stat > mean.male.distinctiveness)/reps)
 ```
 
 ```{r Plot Results}
-male.uniqueness.plot <- ggplot(
-  data = sim.male.uniqueness, aes(stat)) +
-  geom_histogram(aes(y = after_stat(density)), fill = "darkgrey", binwidth = 0.075, center = mean(sim.male.uniqueness$stat)) +
+male.distinctiveness.plot <- ggplot(
+  data = sim.male.distinctiveness, aes(stat)) +
+  geom_histogram(aes(y = after_stat(density)), fill = "darkgrey", binwidth = 0.075, center = mean(sim.male.distinctiveness$stat)) +
   geom_density(fill = "blue", alpha = 0.2) +
   theme_light() +
   theme(
@@ -805,15 +805,15 @@ male.uniqueness.plot <- ggplot(
     axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
     plot.title = element_text(size = 15, hjust = 0.0)
   ) +
-  ggtitle("MHC Uniqueness among Sires") +
+  ggtitle("MHC Distinctiveness among Sires") +
   xlab("Mean Number of Alleles") +
   ylab("Frequency") +
   scale_y_continuous(labels = scales::number_format(accuracy = 0.1, decimal.mark = '.')) +
-  geom_vline(xintercept = mean.male.uniqueness, col = "red" ,linewidth = 1) +
-  geom_vline(xintercept = male.uniqueness.crit.val, linetype = "dotted", color = "black", linewidth = 1) +
-  annotate("rect", xmin = -Inf, xmax = male.uniqueness.crit.val, ymin = 0, ymax = Inf, alpha = 0.25, fill = "grey")
+  geom_vline(xintercept = mean.male.distinctiveness, col = "red" ,linewidth = 1) +
+  geom_vline(xintercept = male.distinctiveness.crit.val, linetype = "dotted", color = "black", linewidth = 1) +
+  annotate("rect", xmin = -Inf, xmax = male.distinctiveness.crit.val, ymin = 0, ymax = Inf, alpha = 0.25, fill = "grey")
 
-male.uniqueness.plot
+male.distinctiveness.plot
 ```
 
 ## P3a - Relatedness and Kinship
@@ -906,7 +906,7 @@ relatedness.plot
 
 ```{r Save Combined Figure to PDF}
 pdf(file = "figures/Figure 1.pdf", width = 10, height = 8) # Export figure as PDF, 10" x 8"
-plot_grid(male.diversity.plot, dissimilarity.plot, male.uniqueness.plot, relatedness.plot, nrow = 2, ncol = 2, align = c("hv"), axis = "lr", labels = c("A.", "B.", "C.", "D."))
+plot_grid(male.diversity.plot, dissimilarity.plot, male.distinctiveness.plot, relatedness.plot, nrow = 2, ncol = 2, align = c("hv"), axis = "lr", labels = c("A.", "B.", "C.", "D."))
 dev.off()
 ```
 
@@ -1607,4 +1607,49 @@ m <- lm(mhc.dissimilarity ~ quellergt, data = r_and_dissimilarity)
 summary(m)
 
 # There is a slight negative relationship between relatedness and MHC dissimilarity, with more closely related dyads, not surprisingly, being less "dissimilar" at the MHC. Still, this relationship is weak.
+```
+
+THE STUFF BELOW IS PLAYING AROUND ONLY
+
+```{r}
+# full siblings versus unrelated...
+n <- 64 # number of adult individuals
+fs_vs_un_adult <- read_csv("data/kingroup2/FS_vs_UN_adult.txt", skip = 10, col_select = -1, n_max = n)
+names(fs_vs_un_adult)[1] <- "ind1.id"
+fs_vs_un_adult <- fs_vs_un_adult %>%
+  pivot_longer(cols = !"ind1.id", names_to = "ind2.id", values_to = "sig") %>% # pivot to column format
+  filter(!is.na(sig)) %>% # remove diagonals
+  mutate(pair = paste0(ind1.id,"=",ind2.id)) %>%
+  mutate(sig2 = if_else(sig != "ns","*","ns")) %>%
+  left_join(., adults_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair")) %>%
+  mutate(parents = if_else(pair %in% parents$pair, "*","")) %>%
+  left_join(., adults, by = (c("ind1.id" = "ID"))) %>%
+  left_join(., adults, by = (c("ind2.id" = "ID"))) %>% rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
+  mutate(dyad_type = paste0(ind1.sex,"=", ind2.sex)) %>%
+  mutate(dyad_type = if_else(dyad_type == "M=F", "F=M", dyad_type))
+
+# what FF pairs are more likely to be FS than UR?
+fs_vs_un_adult <- fs_vs_un_adult %>% filter(ind1.sex=="F", ind2.sex == "F", sig2 != "ns")
+
+fs_vs_un_adult <- fs_vs_un_adult %>% filter(ind1.id %in% c("JU", "HE", "TZ", "YA", "PL", "FE", "GA") | ind2.id %in% c("JU", "HE", "TZ", "YA", "PL", "FE", "GA"))
+
+n <- 64 # number of adult individuals
+hs_vs_un_adult <- read_csv("data/kingroup2/HS_vs_UN_adult.txt", skip = 10, col_select = -1, n_max = n)
+names(hs_vs_un_adult)[1] <- "ind1.id"
+hs_vs_un_adult <- hs_vs_un_adult %>%
+  pivot_longer(cols = !"ind1.id", names_to = "ind2.id", values_to = "sig") %>%
+  filter(!is.na(sig)) %>%
+  mutate(pair = paste0(ind1.id,"=",ind2.id)) %>%
+  mutate(sig2 = if_else(sig != "ns","*","ns")) %>%
+  left_join(., adults_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair")) %>%
+  mutate(parents = if_else(pair %in% parents$pair, "*","")) %>%
+  left_join(., adults, by = (c("ind1.id" = "ID"))) %>%
+  left_join(., adults, by = (c("ind2.id" = "ID"))) %>% rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
+  mutate(dyad_type = paste0(ind1.sex,"=", ind2.sex)) %>%
+  mutate(dyad_type = if_else(dyad_type == "M=F", "F=M", dyad_type))
+
+# what FF pairs are more likely to be HS than UR?
+hs_vs_un_adult <- hs_vs_un_adult %>% filter(ind1.sex=="F", ind2.sex == "F", sig2 != "ns")
+
+hs_vs_un_adult <- hs_vs_un_adult %>% filter(ind1.id %in% c("JU", "HE", "TZ", "YA", "PL", "FE", "GA") | ind2.id %in% c("JU", "HE", "TZ", "YA", "PL", "FE", "GA"))
 ```
