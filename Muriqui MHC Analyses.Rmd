@@ -1173,7 +1173,7 @@ all_comparison <- inner_join(all_pairwise_R, all_pairwise_R_kingroup, by = c("pa
     xlab("Estimated R from {related}") +
     ylab("Estimated R from KINGROUP2") +
     stat_regline_equation(
-      aes(label = paste(..eq.label..,..rr.label.., sep = "~~~~~~")))
+      aes(label = paste(after_stat(eq.label),..rr.label.., sep = "~~~~~~")))
   )
 
 (all.plot <- ggplot(data = all_comparison, aes(x = quellergt.x, y = quellergt.y)) +
@@ -1193,7 +1193,7 @@ all_comparison <- inner_join(all_pairwise_R, all_pairwise_R_kingroup, by = c("pa
     xlab("Estimated R from {related}") +
     ylab("Estimated R from KINGROUP2") +
     stat_regline_equation(
-      aes(label = paste(..eq.label..,..rr.label.., sep = "~~~~~~")))
+      aes(label = paste(after_stat(eq.label),..rr.label.., sep = "~~~~~~")))
   )
 ```
 
@@ -1334,7 +1334,7 @@ ss_mm <- compare_dyad_types(dyads, c("SS", "MM"))
 ```
 
 ```{r Comparison among Adult Dyad Types}
-# And, finally, we can compare mean R among same- and mixed-sex adult dyads using estimated R values from all individuals in KINGROUP2 (as we did previously with estimated R values for adults only from {related})... this extra analysis is not reported in the publication, but supports the conclusions presented therein, i.e., that adult males are more closely related, on average, than expected by chance; that adult females are less closely related, on average, than expected by chance; and that adult males are, on average, more closely related than adult females.
+# And, finally, we can compare mean R among same- and mixed-sex adult dyads using estimated R values from all individuals in KINGROUP2 (as we did previously with estimated R values for adults only from {related})... this extra analysis is not reported in the publication, but supports the conclusions presented therein, i.e., that adult males are more closely related, on average, than expected by chance; that adult females are somewhat less closely related, on average, than expected by chance; and that adult males are, on average, more closely related to one another than adult females are to one another.
 
 compare_sex_classes <- function(df, classes, reps = 10000){
   # can have more than two classes but first two will be the ones compared...
@@ -1607,49 +1607,4 @@ m <- lm(mhc.dissimilarity ~ quellergt, data = r_and_dissimilarity)
 summary(m)
 
 # There is a slight negative relationship between relatedness and MHC dissimilarity, with more closely related dyads, not surprisingly, being less "dissimilar" at the MHC. Still, this relationship is weak.
-```
-
-THE STUFF BELOW IS PLAYING AROUND ONLY
-
-```{r}
-# full siblings versus unrelated...
-n <- 64 # number of adult individuals
-fs_vs_un_adult <- read_csv("data/kingroup2/FS_vs_UN_adult.txt", skip = 10, col_select = -1, n_max = n)
-names(fs_vs_un_adult)[1] <- "ind1.id"
-fs_vs_un_adult <- fs_vs_un_adult %>%
-  pivot_longer(cols = !"ind1.id", names_to = "ind2.id", values_to = "sig") %>% # pivot to column format
-  filter(!is.na(sig)) %>% # remove diagonals
-  mutate(pair = paste0(ind1.id,"=",ind2.id)) %>%
-  mutate(sig2 = if_else(sig != "ns","*","ns")) %>%
-  left_join(., adults_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair")) %>%
-  mutate(parents = if_else(pair %in% parents$pair, "*","")) %>%
-  left_join(., adults, by = (c("ind1.id" = "ID"))) %>%
-  left_join(., adults, by = (c("ind2.id" = "ID"))) %>% rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
-  mutate(dyad_type = paste0(ind1.sex,"=", ind2.sex)) %>%
-  mutate(dyad_type = if_else(dyad_type == "M=F", "F=M", dyad_type))
-
-# what FF pairs are more likely to be FS than UR?
-fs_vs_un_adult <- fs_vs_un_adult %>% filter(ind1.sex=="F", ind2.sex == "F", sig2 != "ns")
-
-fs_vs_un_adult <- fs_vs_un_adult %>% filter(ind1.id %in% c("JU", "HE", "TZ", "YA", "PL", "FE", "GA") | ind2.id %in% c("JU", "HE", "TZ", "YA", "PL", "FE", "GA"))
-
-n <- 64 # number of adult individuals
-hs_vs_un_adult <- read_csv("data/kingroup2/HS_vs_UN_adult.txt", skip = 10, col_select = -1, n_max = n)
-names(hs_vs_un_adult)[1] <- "ind1.id"
-hs_vs_un_adult <- hs_vs_un_adult %>%
-  pivot_longer(cols = !"ind1.id", names_to = "ind2.id", values_to = "sig") %>%
-  filter(!is.na(sig)) %>%
-  mutate(pair = paste0(ind1.id,"=",ind2.id)) %>%
-  mutate(sig2 = if_else(sig != "ns","*","ns")) %>%
-  left_join(., adults_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair")) %>%
-  mutate(parents = if_else(pair %in% parents$pair, "*","")) %>%
-  left_join(., adults, by = (c("ind1.id" = "ID"))) %>%
-  left_join(., adults, by = (c("ind2.id" = "ID"))) %>% rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
-  mutate(dyad_type = paste0(ind1.sex,"=", ind2.sex)) %>%
-  mutate(dyad_type = if_else(dyad_type == "M=F", "F=M", dyad_type))
-
-# what FF pairs are more likely to be HS than UR?
-hs_vs_un_adult <- hs_vs_un_adult %>% filter(ind1.sex=="F", ind2.sex == "F", sig2 != "ns")
-
-hs_vs_un_adult <- hs_vs_un_adult %>% filter(ind1.id %in% c("JU", "HE", "TZ", "YA", "PL", "FE", "GA") | ind2.id %in% c("JU", "HE", "TZ", "YA", "PL", "FE", "GA"))
 ```
