@@ -1,0 +1,1610 @@
+---
+title: "Muriqui MHC Analyses"
+author: "Anthony Di Fiore and Paulo Chaves"
+date: "2023-07-03"
+output: html_document
+---
+
+# Preliminaries
+```{r Load Libraries}
+library(here) # for current working directory
+library(related) # for Queller-Goodnight R calculation
+library(tidyverse) # for data wrangling
+library(ggvenn) # for toy example Venn diagram
+library(skimr) # for quick summary statistics
+library(infer) # for `get_p_value()` function
+library(cowplot) # for creating multipanel plots
+library(ggpubr) # for adding regression equations to plots
+library(DescTools) # for `KendallTauB()` function to assess CI
+```
+
+```{r Load and Process Genotype Data}
+# Genotype data is held in two files, one with adult genotypes only and one with all genotypes
+adults_genos <- readgenotypedata("data/adults_genos.txt")
+all_genos <- readgenotypedata("data/all_genos.txt")
+loci <- read_tsv("data/loci.txt", col_names = TRUE) # locus names in order presented in genotypes table
+adults <- read_tsv("data/adults.txt", col_names = TRUE) # all adults names and sexes, plus individual heterozygosity and MHC allele diversity
+males <- adults %>% filter(sex == "M") %>% pull(ID) # all candidate sires
+females <- adults %>% filter(sex == "F") %>% pull(ID) # all dams plus 5 additional adult females
+
+# Set the random seed to be used for all simulations. We set the same random seed to generate results for exact values reported in paper, but the seed can be anything... p values will change slightly, but results are qualitatively unchanged.
+seed <- 11539 
+```
+
+# Basic Relatedness Analyses
+
+```{r Relatedness Estimate Calculations}
+# Calculate estimated pairwise R
+adults_rel <- coancestry(
+  adults_genos$gdata,
+  allow.inbreeding = FALSE,
+  error.rates = 0.01,
+  quellergt = 2,
+  ritland = 0)
+all_rel <- coancestry(
+  all_genos$gdata,
+  allow.inbreeding = FALSE,
+  error.rates = 0.01,
+  quellergt = 2,
+  ritland = 0)
+
+# Extract the pairwise R values and reformat columns
+adults_pairwise_R <-
+  adults_rel$relatedness %>%
+  select(ind1.id, ind2.id, quellergt) %>%
+  mutate(pair = paste0(ind1.id, "=", ind2.id)) # 2016 dyads... this is a half matrix represented in long (columnar) format, i.e., each dyad is included only once (e.g., A-B but not B-A)
+
+all_pairwise_R <-
+  all_rel$relatedness %>%
+  select(ind1.id, ind2.id, quellergt) %>%
+  mutate(pair = paste0(ind1.id, "=", ind2.id)) # 6105 dyads... again, this is a half matrix this is a half matrix represented in long (columnar) format
+
+# We want to keep these structures as half matrices to use in our simulations to test predictions 1, 2a, 2b, and 3a so as to not artificially double the the number of dyads in any dyad type category. But we can use full matrices later to look up R values for a given dyad with the individuals in either order (e.g., A-B and B-A). The code below generates the "full" matrices...
+
+# We first make a temporary "second half" matrix in long format that reverses the order of individuals in the pair, which we then bind to the first half...
+ 
+temp <-
+  adults_pairwise_R %>%
+  mutate(
+    ind1.id.new = ind2.id,
+    ind2.id = ind1.id,
+    ind1.id = ind1.id.new,
+    pair = paste0(ind1.id, "=", ind2.id)
+  ) %>%
+  select(-c(ind1.id.new))
+
+adults_pairwise_R_full <-
+  bind_rows(adults_pairwise_R, temp)
+
+temp <-
+  all_pairwise_R %>%
+  mutate(
+    ind1.id.new = ind2.id,
+    ind2.id = ind1.id,
+    ind1.id = ind1.id.new,
+    pair = paste0(ind1.id, "=", ind2.id)
+  ) %>%
+  select(-c(ind1.id.new))
+
+all_pairwise_R_full <-
+  bind_rows( all_pairwise_R, temp)
+
+# Remove the temporary data structure 
+rm(list = c("temp"))
+```
+
+```{r Create Full Relatedness Matrices}
+# We also now create these relatedness matrices in matrix format rather than long (columnar) format. The matrices are all numeric, with individual IDs as row names and column names.
+# Adults...
+# Create a list of all unique adult IDs
+adults_id <- sort(unique(c(as.character(adults_pairwise_R$ind1.id), as.character(adults_pairwise_R$ind2.id))))
+
+# Set up an empty matrix to hold pairwise R estimates
+adults_R_matrix <- matrix(NA, nrow = length(adults_id), ncol = length(adults_id), dimnames = list(adults_id, adults_id))
+
+# Fill the diagonal
+diag(adults_R_matrix) <- 1 
+
+# Fill the upper half of the matrix
+adults_R_matrix[as.matrix(adults_pairwise_R[, c("ind1.id", "ind2.id")])] <- adults_pairwise_R[,c("quellergt")] # R values
+
+# Fill the lower half of the matrix
+adults_R_matrix[as.matrix(adults_pairwise_R[, c("ind2.id", "ind1.id")])] <- adults_pairwise_R[,c("quellergt")] # R values
+# This is now a full dyadic R matrix for adults
+
+# All individuals...
+# Create a list of all unique individual IDs
+all_id <- sort(unique(c(as.character(all_pairwise_R$ind1.id), as.character(all_pairwise_R$ind2.id))))
+
+# Set up an empty matrix to hold pairwise R estimates
+all_R_matrix <- matrix(NA, nrow = length(all_id), ncol = length(all_id), dimnames = list(all_id, all_id))
+
+# Fill the diagonal
+diag(all_R_matrix) <- 1 
+
+# Fill the upper half of the matrix
+all_R_matrix[as.matrix(all_pairwise_R[, c("ind1.id", "ind2.id")])] <- all_pairwise_R[,c("quellergt")] # R values
+
+# Fill the lower half of the matrix
+all_R_matrix[as.matrix(all_pairwise_R[, c("ind2.id", "ind1.id")])] <- all_pairwise_R[,c("quellergt")] # R values
+# This is now a full dyadic R matrix for all individuals
+
+# Save these data structures...
+adults_R_matrix %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "ID") %>%
+  as_tibble() %>%
+  write_tsv(file = "outputs/adults_R_matrix.txt")
+all_R_matrix %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "ID") %>%
+  as_tibble() %>%
+  write_tsv(file = "outputs/all_R_matrix.txt")
+```
+
+# Comparing Relatedness among Dyad Types in Adults
+
+```{r Mean Relatedness by Dyad Type}
+# Using the "adult_pairwise_R" half matrix, which is in long format and includes the Queller-Goodnight estimated R as calculated by {related}, we add in information on the sex of each adult, and then assign a dyad type as MM (male-male), FF (female-female), or MS (mixed sex)
+
+pairwise_R <- adults_pairwise_R %>% # use "adults_pairwise_R" rather than "all_pairwise_R"...
+  left_join(., adults, by = c("ind1.id" = "ID")) %>%
+  left_join(., adults, by = c("ind2.id" = "ID")) %>%
+  rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
+  mutate(dyad.type = paste0(ind1.sex, ind2.sex)) %>%
+  mutate(dyad.type = case_when(
+    dyad.type == "MM" ~ "MM", # male-male
+    dyad.type == "FF" ~ "FF", # female-female
+    dyad.type == "MF" | dyad.type == "FM" ~ "MS")) # mixed sex
+
+pairwise_R$dyad.type <- factor(pairwise_R$dyad.type, levels = c("FF", "MS", "MM")) # relevel for plotting
+
+# Then, we summarize mean R by dyad type
+obs_R <- pairwise_R %>%
+  group_by(dyad.type) %>%
+  summarize(mean.R = mean(quellergt)) %>%
+  pivot_wider(values_from = mean.R, names_from = dyad.type) %>%
+  mutate(
+    # Overall = mean(pairwise_R$quellergt), # uncomment to see overall mean R
+    MM.FF.diff = MM - FF,
+    MM.MS.diff = MM - MS,
+    FF.MS.diff = FF - MS) %>%
+  pivot_longer(everything()) %>%
+  rename(dyad.type = name, obs.mean.R = value)
+
+obs_R$dyad.type <- factor(obs_R$dyad.type, levels = c("FF", "MS", "MM", "FF.MS.diff", "MM.MS.diff", "MM.FF.diff")) # relevel for plotting
+```
+
+```{r Plot Results}
+p <- ggplot(pairwise_R, aes(x = dyad.type, y = quellergt)) +
+  geom_violin() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_boxplot(width = 0.4, alpha = 0.5, fill = "red") +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(1, 1, 1, 1), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  ) +
+  ylim(-0.60, 0.80) +
+  xlab("Dyad Type") +
+  ylab("Estimated R") +
+  ggtitle("Estimated Pairwise R among Adult Dyads")
+
+p
+```
+
+```{r Save Figure to PDF}
+pdf(file = "figures/Estimated Pairwise R among Adult Dyads.pdf", width = 10, height = 8) # Export figure as PDF, 10" x 8"
+p
+dev.off()
+```
+
+```{r Testing Differences among Dyad Types}
+# To test for differences in mean R among different dyad types by permutation, we [1] shuffle each individual's sex within the "pairwise_R" dataset, keeping the same number of individuals per sex category, [2] assign a new dyad type based on the shuffled sexes, and [3] recalculate mean R by dyad type for each replicate. We then compare the observed mean estimated R for each dyad type and the differences between mean R by dyad type to the relevant permutation distributions.
+
+set.seed(seed)
+
+reps <- 10000
+
+reps_R <- tibble( # create an empty tibble to hold results of each replicate
+  FF = numeric(),
+  MM = numeric(),
+  MS = numeric())
+
+for (i in 1:reps) {
+  # first, shuffle up sex for each adult individual
+  shuffled.sex <- tibble(id = adults$ID, orig.sex = adults$sex) %>%
+    mutate(shuffled.sex = sample(orig.sex))
+  # then, make a temp dataframe from pairwise_R...
+  temp <- pairwise_R
+  # ... and merge temp and shuffled.sex to assign a "new" sex for each individual and re-define dyad type
+  temp <- inner_join(temp, shuffled.sex, by = c("ind1.id" = "id"))
+  temp <- inner_join(temp, shuffled.sex, by = c("ind2.id" = "id"))
+  temp <- temp %>% mutate(new.dyad.type = paste0(shuffled.sex.x, shuffled.sex.y)) # re-defined dyad type
+  temp <- temp %>% mutate(new.dyad.type = case_when(
+    new.dyad.type == "MF" | new.dyad.type == "FM" ~ "MS",
+    new.dyad.type == "FF" ~ "FF",
+    new.dyad.type == "MM" ~ "MM"))
+  # then summarize mean R by dyad type...
+  temp <- temp %>%
+    group_by(new.dyad.type) %>%
+    summarize(mean.R = mean(quellergt)) %>%
+    pivot_wider(values_from = mean.R, names_from = new.dyad.type)
+  # and bind results in the reps_R data structure
+    reps_R <- bind_rows(reps_R, temp)
+}
+
+reps_R <- reps_R %>%
+  mutate(
+     MM.FF.diff = MM - FF,
+     MM.MS.diff = MM - MS,
+     FF.MS.diff = FF - MS) %>%
+  pivot_longer(everything()) %>%
+  rename(dyad.type = name, mean.R = value) %>%
+  arrange(factor(dyad.type, levels = c("FF","MS","MM","FF.MS.diff","MM.MS.diff","MM.FF.diff")))
+```
+
+```{r Critical Values and P Values}
+# Calculate p values and critical values for observed statistics relative to the permutation distributions
+
+FF.crit <- quantile(
+  reps_R %>% filter(dyad.type == "FF") %>% pull(mean.R),
+  0.05)
+
+FF.p <- get_p_value(
+  reps_R %>% filter(dyad.type == "FF") %>% select(mean.R),
+  obs_R %>% filter(dyad.type == "FF") %>% pull(obs.mean.R),
+  direction = "left")
+
+MS.crit <- quantile(
+  reps_R %>% filter(dyad.type == "MS") %>% pull(mean.R),
+  c(0.025, 0.975))
+
+MS.p <- get_p_value(
+  reps_R %>% filter(dyad.type == "MS") %>% select(mean.R),
+  obs_R %>% filter(dyad.type == "MS") %>% pull(obs.mean.R),
+  direction = "both")
+
+MM.crit <- quantile(
+  reps_R %>% filter(dyad.type == "MM") %>% pull(mean.R),
+  c(0.95))
+
+MM.p <- get_p_value(
+  reps_R %>% filter(dyad.type == "MM") %>% select(mean.R),
+  obs_R %>% filter(dyad.type == "MM") %>% pull(obs.mean.R),
+  direction = "right")
+
+FF.MS.diff.crit <- quantile(
+  reps_R %>% filter(dyad.type == "FF.MS.diff") %>% pull(mean.R),
+  c(0.025, 0.975))
+
+FF.MS.diff.p <- get_p_value(
+  reps_R %>% filter(dyad.type == "FF.MS.diff") %>% select(mean.R),
+  obs_R %>% filter(dyad.type == "FF.MS.diff") %>% pull(obs.mean.R),
+  direction = "both")
+
+MM.MS.diff.crit <- quantile(
+  reps_R %>% filter(dyad.type == "MM.MS.diff") %>% pull(mean.R),
+  c(0.025, 0.975))
+
+MM.MS.diff.p <- get_p_value(
+  reps_R %>% filter(dyad.type == "MM.MS.diff") %>% select(mean.R),
+  obs_R %>% filter(dyad.type == "MM.MS.diff") %>% pull(obs.mean.R),
+  direction = "both")
+
+MM.FF.diff.crit <- quantile(
+  reps_R %>% filter(dyad.type == "MM.FF.diff") %>% pull(mean.R),
+  c(0.95))
+
+MM.FF.diff.p <- get_p_value(
+  reps_R %>% filter(dyad.type == "MM.FF.diff") %>% select(mean.R),
+  obs_R %>% filter(dyad.type == "MM.FF.diff") %>% pull(obs.mean.R),
+  direction = "right")
+
+crit.value <- bind_rows(FF.crit, MS.crit, MM.crit, FF.MS.diff.crit, MM.MS.diff.crit, MM.FF.diff.crit)
+
+p.value <- bind_rows(FF.p, MS.p, MM.p, FF.MS.diff.p, MM.MS.diff.p, MM.FF.diff.p) %>% rename(p.value = p_value)
+
+# Collate results into a summary table
+
+summary <- reps_R %>%
+  group_by(dyad.type) %>%
+  summarize(
+    reps.mean.R = mean(mean.R)
+    ) %>%
+  left_join(., obs_R, by = c("dyad.type" = "dyad.type")) %>%
+  arrange(factor(dyad.type, levels = c("FF","MS","MM","FF.MS.diff","MM.MS.diff","MM.FF.diff")))
+
+summary <- bind_cols(summary, crit.value, p.value) %>%
+  mutate(color = if_else(p.value < 0.05, "blue", "red")) # color by p value
+```
+
+```{r Plot Results}
+# Plot observed statistics relative to permutation distributions
+
+p <- ggplot(data = reps_R, aes(x = mean.R)) +
+  geom_histogram(bins = 25, aes(y = after_stat(density)), fill = "darkgrey") +
+  geom_density(fill = "blue", alpha = 0.2) +
+  facet_wrap(~ factor(dyad.type, levels = c("FF","MS","MM","FF.MS.diff","MM.MS.diff","MM.FF.diff")), scales = "free") +
+  ggtitle("Expected Mean Pairwise R by Adult Dyad Type - Permuting Individual Sex") +
+  xlab("Mean Estimated R") +
+  ylab("Frequency") +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(1, 1, 1, 1), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  ) +
+  geom_vline(
+    data = summary,
+    aes(xintercept = obs.mean.R), color = summary$color, linewidth = 1) +
+  geom_vline(
+      data = summary,
+      aes(xintercept = `5%`), color = "black", linetype = "dotted", linewidth = 1) +
+  geom_vline(
+      data = summary,
+      aes(xintercept = `2.5%`), color = "black", linetype = "dotted", linewidth = 1) +
+  geom_vline(
+      data = summary,
+      aes(xintercept = `95%`), color = "black", linetype = "dotted", linewidth = 1) +
+  geom_vline(
+    data = summary,
+    aes(xintercept = `97.5%`),
+    color = "black",
+    linetype = "dotted",
+    linewidth = 1) +
+  geom_rect(
+    data = summary,
+    aes(xmin = `2.5%`, xmax = `97.5%`, ymin = 0, ymax = Inf),
+    alpha = 0.25, fill = "grey",
+    inherit.aes = FALSE) +
+  geom_rect(
+    data = summary,
+    aes(xmin = `5%`, xmax = Inf, ymin = 0, ymax = Inf),
+    alpha = 0.25, fill = "grey",
+    inherit.aes = FALSE) +
+  geom_rect(
+    data = summary,
+    aes(xmin = -Inf, xmax = `95%`, ymin = 0, ymax = Inf),
+    alpha = 0.25, fill = "grey",
+    inherit.aes = FALSE) +
+  facet_wrap(~ factor(dyad.type, levels = c("FF","MS","MM","FF.MS.diff","MM.MS.diff","MM.FF.diff")), scales = "free")
+
+p
+
+# NOTE: Visualizing this plot will give some warnings about missing values for geom_vline() and geom_rect()... this is fine, just a result of how the summary table for adding critical value regions is structured
+```
+
+```{r Save Figure to PDF}
+pdf(file = "figures/Expected Mean Pairwise R by Adult Dyad Type.pdf", width = 10, height = 8) # Export figure as PDF, 10" x 8"
+p
+dev.off()
+```
+
+# Basic MHC Summary Statistics
+
+We first want to summarize, for each male and female, the total number of MHC alleles they have. So, we read in two data files of raw MHC allele presence/absence data and calculate the total MHC diversity for each individual. There are two files with rows containing male and female IDs, respectively, and columns scoring the presence/absence (1/0) of each of 22 MHC alleles.
+
+```{r MHC Summary Statistics}
+males.data <- read_table("data/mhc_males.txt", col_names = TRUE)
+males.data <- males.data %>%
+  mutate(div = rowSums(across(where(is.numeric))))
+# skim(males.data$div) # uncomment for quick visualization of summary stats
+males.div <- males.data %>%
+  select(ID, div)
+
+females.data <- read_table("data/mhc_females.txt", col_names = TRUE)
+females.data <- females.data %>%
+  mutate(div = rowSums(across(where(is.numeric))))
+# skim(females.data$div) # uncomment for quick visualization of summary stats
+females.div <- females.data %>%
+  select(ID, div)
+```
+
+# Generate MHC Diversity and Dissmilarity Matrices and Relatedness Matrix
+
+We now want to create several data matrices we will need to test hypotheses. The following snippet of code provides visualization of a toy example of how we summarize MHC allele diversity, sharing, dissimilarity, and distinctiveness for a pair of individuals, say, female "A" and male "B"...
+
+```{r Venn Diagram Example}
+set.seed(seed)
+
+alleles <- paste("MHC", 1:22, sep = "") # creates an array of different MHC alleles
+x <- list(
+  A = sample(alleles, 7), # select 7 alleles at random for individual A
+  B = sample(alleles, 6) # select 6 alleles at random for individual A
+  )
+ggvenn( # Venn diagram of allelic overlap
+  x, 
+  fill_color = c("#0073C2FF", "#EFC000FF"),
+  stroke_size = 0.5, set_name_size = 4
+  )
+```
+
+Here, female "A" has seven different alleles and male "B" has six alleles. This is their allelic *diversity*. The overlap area represents allele *sharing* between female "A" and male "B" -- they have three alleles in common. The blue area represents alleles *unique* or *distinctive* to female "A" (four alleles), the yellow area represents alleles *unique* or *distinctive* to male "M" (three alleles), and the blue + yellow area, exclusive of the area of overlap, represents *dissimilarity* between female "A" and male "B", i.e., the total number of alleles present in the pair that they do not have in common (seven alleles).
+
+## Diversity
+
+To test P1, about MALE MHC DIVERSITY, we need a matrix consisting of a row for each female dam in the dataset and a column for each male, where cell values reflect each particular male's total number of MHC alleles, as calculated above. Note that all rows in this female X male matrix will have the same values.
+
+```{r Male Diversity Matrix}
+males.div <- males.div %>%
+  column_to_rownames("ID") %>%
+  as.matrix()
+females.id <- column_to_rownames(females.data, "ID") %>%
+  mutate(div = 1) %>%
+  select(div) %>%
+  as.matrix()
+male.diversity <- females.id %*% t(males.div)
+# This matrix now contains the total number of MHC alleles that each male (columns) has, repeated for each female (rows)
+```
+
+## Dissimilarity
+
+To test P2a and P2b, about DISSIMILARITY between males and females, we need to create matrices that summarize aspects of MHC ALLELE SHARING AND NONSHARING between dams and possible sires. Again, these matrices should consist of a row for each female dam in the population and a column for each male. Cell values for these matrices indicate the number of MHC alleles that the particular combination of dam and male have in common ("sharing"), do not have in common ("dissimilarity"), or are unique in one or the other sex ("distinctiveness").
+
+We first reformat the tables summarizing MHC allele presence/absence (1/0) in males and females, respectively, into numeric data matrices where row attributes are individual IDs and columns attributes are the presence/absence (1/0) of each MHC allele. These matrixare useful for quickly constructing cross-tabulations for allele sharing and nonsharing for different pairs of individuals.
+
+```{r Allele Presence/Absence Matrices}
+males.alleles.matrix <- males.data %>%
+  column_to_rownames("ID") %>%
+  select(-div) %>%
+  as.matrix()
+
+females.alleles.matrix <- females.data %>%
+  column_to_rownames("ID") %>%
+  select(-div) %>%
+  as.matrix()
+```
+
+To get a matrix of MHC ALLELE SHARING values between all pairs of males and females, we can use the matrix multiplication operator (%*%) to take the cross product of the female and (transposed) male 1/0 matrices, which results in a matrix of pairwise allele *sharing*, i.e., the number of shared alleles between each pair of female-male pair.
+
+```{r Female-Male Allele Sharing Matrix}
+sharing <- females.alleles.matrix %*% t(males.alleles.matrix)
+# This matrix now contains the total number of MHC alleles shared between each combination of female (rows) and male (columns)
+```
+
+We can also create a matrix of MHC DISSIMILARITY between males and females, i.e., the total number of alleles present in each pair of female and male that they *do not* have in common, using the matrix multiplication operator (%*%), as in the code below...
+
+```{r Female-Male Dissimilarity Matrix}
+dissimilarity <- ncol(females.alleles.matrix) -
+  (!females.alleles.matrix) %*% t(!males.alleles.matrix) -
+  females.alleles.matrix %*% t(males.alleles.matrix)
+# This is now a dissimilarity matrix... the number of alleles present in either individual that not shared between each female (rows) and male (columns)
+```
+
+Finally, we also create a matrix of male "distinctiveness" relative to each female, i.e., the total number of alleles a male has that each female does not, as follows...
+
+```{r Male Distinctiveness Matrix}
+male.distinctiveness <- (!females.alleles.matrix) %*% t(males.alleles.matrix)
+# This is now a matrix of how many alleles each male (columns) has that are different from those found in each particular female (rows)
+```
+
+## Relatedness
+
+To test P3a, about relatedness between dam-sire pairs, we need a matrix of pairwise estimated genetic relatedness that is structured similarly to those matrices created above, i.e., with females in rows and males in columns. We create this matrix using the matrix of adult pairwise R estimates ("adults_R_matrix") that we generated above.
+
+```{r Female-Male Relatedness Matrix}
+# Convert the matrix of adult pairwise R estimates that we created above to a "tibble", a special kind of data frame, which lets us wrangle it easily
+relatedness <- as_tibble(adults_R_matrix)
+ids <- names(relatedness)
+relatedness <- bind_cols(ID = ids, relatedness)
+
+# Get adult female and male IDs for all dams and potential sires
+# Note that here there are 5 fewer females than in the "adults.txt" and "adults_genos.txt" files, because MHC diversity was only typed for dams and potential sire, not for the five additional adult females who were not dams
+females <- females.data %>% pull(ID)
+males <- males.data %>% pull(ID)
+
+# Extract only dam rows and potential sire columns from the relatedness matrix
+relatedness <- relatedness %>%
+  filter(ID %in% females) %>%
+  select(c(ID, all_of(males)))
+
+# Convert this "tibble" back to a matrix with female IDs in rows and male IDs in columns
+relatedness <- column_to_rownames(relatedness, "ID")
+relatedness <- as.matrix(relatedness)
+# This is now a matrix of estimated R between each female (rows) and each male (columns) in the dataset
+```
+
+The dimensions of the five matrices we have just created -- sharing, male.diversity, dissimilarity, male.distinctiveness, and relatedness -- should all be 27 females by 32 males.
+
+```{r Show Dimensions}
+dim(sharing)
+dim(male.diversity)
+dim(dissimilarity)
+dim(male.distinctiveness)
+dim(relatedness)
+```
+# Simulations to Test Predictions
+
+All simulations are based on the same number of replicates, set below.
+
+```{r Set Number Replicates}
+reps <- 100000
+```
+
+## P1 - MHC ALLELE DIVERSITY IN SIRES
+
+To test P1, we want to compare average MHC diversity among actual sires to average diversity among a set of random possible sires for each offspring to examine whether females have offspring with males who have, on average, higher MHC diversity than expected by chance. For the relevant data are in the data in matrix "male.diversity" generated above.
+
+**However**, we cannot just use this matrix as created because we need to take into account the fact that [1] some dams in the population had more than one offspring in our dataset and [2] that, for some offspring, certain males were not potential sires of specific offspring (e.g., because they were too young or were dead or otherwise not present at the time of a particular offspring's conception). Thus, we need to create an updated version of the "male.diversity" matrix that incorporates this additional demographic information about the availability of different males as potential sires.
+
+We do this by first loading in a data table which has one row for each offspring in the dataset, along with its dam and sire (based on parentage results), plus an additional column each of the adult males in the study population, where the cell values under each adult male in this matrix are `1` if the male was considered a candidate sire for that particular offspring (i.e., if he was greater than 5 years of age and present in the group at the time of the offspring's conception) or `NA` if the male was not considered a candidate sire (i.e., he was too young or was dead).
+
+```{r Demographic Overview Matrix}
+overview <- read_tsv("data/parentage_and_candidates.txt", col_names = TRUE)
+offspring <- overview %>% pull(offspring)
+dams <- overview %>% pull(dam)
+sires <- overview %>% pull(sire)
+candidates <- names(overview)[-3:-1] # all possible candidate sire names, which is equivalent to "males", generated above
+overview <- as.matrix(overview[, 4:ncol(overview)]) # subset and convert to matrix...
+dimnames(overview) = list(dams, candidates) # assign dam name as rowname
+
+# The "overview" matrix now contains information on whether each male was considered a candidate sire or not for each of the 47 offspring in the dataset, with dam ID as the rowname and candidate sire ID as the column name
+```
+
+We then create "male.diversity.updated" matrix by extracting the appropriate value from the original "male.diversity" matrix for each combination of dam and male for only those cells in "overview" where the value is `1`.
+
+```{r Updated Male Diversity Matrix}
+# Create an empty matrix that we will fill with appropriate values
+male.diversity.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
+
+# Extract values from "male.diversity" only where the "overview" matrix indicates a male could be a potential sire of each dams' offspring
+for (i in 1:nrow(overview)) {
+  for (j in dimnames(male.diversity.updated)[[2]]) {
+    male.diversity.updated[i,j] <- overview[i,j] * male.diversity[rownames(male.diversity.updated)[[i]], j]
+  }
+}
+
+# To save this data structure...
+male.diversity.updated %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "ID") %>%
+  as_tibble() %>%
+  write_tsv(file = "outputs/male.diversity.matrix.txt")
+```
+
+This matrix now contains, for each of 47 offspring, a unique combination of dam + offspring as rows, all male IDs as columns, and, as cell values, the number of MHC alleles carried by each potential sire, with cells filled in *only* if the male could have potentially sired the given offspring.
+
+Now we sample, for each row in the data matrix a random column (male) to generate a set of N = 47 actual dam + random potential sire pairs. This is repeated `reps` times, and for each replicate, we calculate the mean number of alleles that "sires" have across this set of 47 offspring. The `!is.na` in the apply() function line in the simulation means that we can only sample a male as random sire if the data for him is not `NA`.
+
+The result of each simulation is the average MHC allelic diversity across 47 simulated sires, and `sim.male.divervsity$stat` is thus a null distribution of average male MHC diversity scores across random sets of sires.
+
+```{r Male Diversity Simulation}
+set.seed(seed)
+
+sim.male.diversity <- replicate(
+  reps,
+  apply(male.diversity.updated, 1, function(x) sample(x[!is.na(x)], 1))
+  ) %>%
+  t() %>%
+  as_tibble() %>% 
+  mutate(replicate = row_number()) %>%
+  pivot_longer(cols = -c(replicate)) %>%
+  group_by(replicate) %>%
+  summarize(stat = mean(value))
+```
+
+Next, we calculate the observed average male MHC diversity among known sires and compare to this the critical value derived from the simulation distribution. To calculate the observed average, we simply pull out the relevant values from the original "male.diversity" matrix...
+
+```{r Observed Mean Male Diversity}
+# Extract values to calculate observed male MHC diversity in pairs that we know actually had kids together and calculate the average
+
+male.diversity.obs <- vector() # vector to hold results
+for (i in 1:length(offspring)) {
+  male.diversity.obs[i] <- male.diversity[dams[i], sires[i]]
+}
+
+mean.male.diversity = mean(male.diversity.obs)
+```
+
+Because we are testing the one-tailed hypothesis of higher allelic diversity among the set of actual sires than random sires, the critical value of interest corresponds to the 95th quantile of the simulation distribution.
+
+The associated p value is simply the proportion of simulation runs where the average diversity among sets of random sires exceeds that among observed in the set of real sires.
+
+```{r Critical Value and P Value}
+(male.diversity.crit.val <- quantile(sim.male.diversity$stat, c(0.95)))
+
+(p.value <- sum(sim.male.diversity$stat > mean.male.diversity)/reps)
+```
+
+```{r Plot Results}
+male.diversity.plot <- ggplot(
+  data = sim.male.diversity, aes(stat)) +
+  geom_histogram(
+    aes(y = after_stat(density)),
+    fill = "darkgrey",
+    binwidth = 0.05,
+    center = mean(sim.male.diversity$stat)) +
+  geom_density(
+    fill = "blue", alpha = 0.2) +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(1, 0, 0, 1), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  ) +
+  ggtitle("MHC Diversity among Sires") +
+  xlab("Mean Number of Alleles") +
+  ylab("Frequency") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1, decimal.mark = '.')) +
+  geom_vline(xintercept = mean.male.diversity, col = "blue" ,linewidth = 1) +
+  geom_vline(xintercept = male.diversity.crit.val, linetype = "dotted", color = "black", linewidth = 1) +
+  annotate("rect", xmin = -Inf, xmax = male.diversity.crit.val, ymin = 0, ymax = Inf, alpha = 0.25, fill = "grey")
+
+male.diversity.plot
+```
+
+## P2a and P2b - MHC DISSMILARITY and DISTINCTIVENESS
+
+One way look at whether dam-sire pairs reflect disassortative mating is to do a similar simulation to that conducted above using the *dissimilarity* dataset. To do this, though, we need to create an updated version of the "dissimilarity" data matrix that, as above, duplicates lines corresponding to additional offspring for each female and has `NA`s in cells for where an given male could not be a potential sire for the offspring in question. The process to create this updated matrix is the same as followed above.
+
+```{r Updated Dissimilarity Matrix}
+# Create an empty matrix that we will fill with appropriate values
+dissimilarity.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
+
+# Extract values from male.dissimilarity only where the overview matrix indicates a male could be a potential sire of each dams' offspring
+for (i in 1:nrow(overview)) {
+  for (j in dimnames(dissimilarity.updated)[[2]]) {
+    dissimilarity.updated[i,j] <- overview[i,j] * dissimilarity[rownames(dissimilarity.updated)[[i]], j]
+  }
+}
+
+# To save this data structure...
+dissimilarity.updated %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "ID") %>%
+  as_tibble() %>%
+  write_tsv(file = "outputs/dissimilarity.matrix.txt")
+```
+
+This matrix now contains, for each of 47 offspring, a unique combination of dam + offspring as rows, all male IDs as columns, and, as cell values, the number of MHC alleles possessed by a given female-male pair that they *do* not have in common. Cells are only filled with a value if the male in question (column) could have potentially sired the offspring represented in each dam-offspring row.
+
+Now we again sample, for each row in the data matrix a random column (male) to generate a set of N = 47 actual dam + random potential sire pairs. This is repeated `reps` times, and for each replicate, we calculate the mean dissimilarity between dam and sire across this set of 47 offspring. `sim.dissimilarity$stat` is thus a null distribution of average dam-sire dissimilarity scores across random sets of sires.
+
+```{r Female-Male Dissimilarity Simulation}
+set.seed(seed)
+
+sim.dissimilarity <- replicate(
+  reps,
+  apply(dissimilarity.updated, 1, function(x) sample(x[!is.na(x)], 1))
+  ) %>%
+  t() %>%
+  as_tibble() %>% 
+  mutate(replicate = row_number()) %>%
+  pivot_longer(cols = -c(replicate)) %>%
+  group_by(replicate) %>%
+  summarize(stat = mean(value))
+```
+
+We extract observed allelic dissimilarity among actual dam-sire pairs by pulling the relevant data from the "dissimilarity" matrix and calculate the average of these values...
+
+```{r Observed Mean Female-Male Dissimilarity}
+dissimilarity.obs <- vector()
+for (i in 1:length(offspring)) {
+  dissimilarity.obs[i] <- dissimilarity[dams[i], sires[i]]
+}
+
+mean.dissimilarity = mean(dissimilarity.obs)
+```
+
+Because we are testing the one-tailed hypotheses of greater allelic dissimilarity among the set of dam-actual sire pairs than among dam-random sire pairs, the critical value of interest corresponds to the 95th quantile of the simulation distribution.
+
+The associated p value is simply the proportion of simulation runs where the average dissimilarity among sets of random sires exceeds that among observed in the set of real sires.
+
+```{r Critical Value and P Value}
+(dissimilarity.crit.val <- quantile(sim.dissimilarity$stat, c(0.95)))
+
+(p.value <- sum(sim.dissimilarity$stat > mean.dissimilarity)/reps)
+```
+
+```{r Plot Results}
+dissimilarity.plot <- ggplot(
+  data = sim.dissimilarity, aes(stat)) +
+  geom_histogram(aes(y = after_stat(density)), fill = "darkgrey", binwidth = 0.075, center = mean(sim.dissimilarity$stat)) +
+  geom_density(fill = "blue", alpha = 0.2) +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(1, 1, 0, 0), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  ) +
+  ggtitle("Dam-Sire Allelic Dissimilarity") +
+  xlab("Mean Number of Alleles") +
+  ylab("Frequency") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1, decimal.mark = '.')) +
+  geom_vline(xintercept = mean.dissimilarity, col = "red" ,linewidth = 1) +
+  geom_vline(xintercept = dissimilarity.crit.val, linetype = "dotted", color = "black", linewidth = 1) +
+  annotate("rect", xmin = -Inf, xmax = dissimilarity.crit.val, ymin = 0, ymax = Inf, alpha = 0.25, fill = "grey")
+
+dissimilarity.plot
+```
+
+As a second test relevant to this hypothesis, we can also examine whether dams have offspring with sires that have a greater number of *distinct* MHC alleles relative to themselves. For this we would use the data in matrix "male.distinctiveness", again updating that matrix to take into account the fact that some females had more than one offspring in our dataset and that, for some offspring, certain males were not available as potential sires.
+
+```{r Updated Male Distinctiveness Matrix}
+# Create an empty matrix that we will fill with appropriate values
+male.distinctiveness.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
+
+# Extract values from male.distinctiveness only where the overview matrix indicates a male could be a potential sire of each dams' offspring
+for (i in 1:nrow(overview)) {
+  for (j in dimnames(male.distinctiveness.updated)[[2]]) {
+    male.distinctiveness.updated[i,j] <- overview[i,j] * male.distinctiveness[rownames(male.distinctiveness.updated)[[i]], j]
+  }
+}
+
+# To save this data structure...
+male.distinctiveness.updated %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "ID") %>%
+  as_tibble() %>%
+  write_tsv(file = "outputs/male.distinctiveness.matrix.txt")
+```
+
+We then run an analogous simulation to those above. This time, the result of each simulation is the average number of unique alleles among each set of simulated sires, and the null distribution of this statistic is held in `sim.male.distinctiveness$stat`.
+
+```{r Male Uniqueness Simulation}
+set.seed(seed)
+
+sim.male.distinctiveness <- replicate(
+  reps,
+  apply(male.distinctiveness.updated, 1, function(x) sample(x[!is.na(x)], 1))
+  ) %>%
+  t() %>%
+  as_tibble() %>% 
+  mutate(replicate = row_number()) %>%
+  pivot_longer(cols = -c(replicate)) %>%
+  group_by(replicate) %>%
+  summarize(stat = mean(value))
+```
+
+As above, we extract observed distinctiveness among actual sires relative to dams by pulling the relevant data from the original "male.distinctiveness" matrix and calculating the average of these values...
+
+```{r Observed Mean Male Distinctiveness}
+male.distinctiveness.obs <- vector()
+for (i in 1:length(offspring)) {
+  male.distinctiveness.obs[i] <- male.distinctiveness[dams[i], sires[i]]
+}
+
+mean.male.distinctiveness <- mean(male.distinctiveness.obs)
+```
+
+Because we are testing the one-tailed hypotheses of higher allelic distinctiveness among the set of dam-actual sire pairs than among dam-random sire pairs, the critical value of interest corresponds to the 95th quantile of the simulation distribution.
+
+The associated p value is simply the proportion of simulation runs where the average male distinctiveness among sets of random sires exceeds that among observed in the set of real sires.
+
+```{r Critical Value and P Value}
+(male.distinctiveness.crit.val <- quantile(sim.male.distinctiveness$stat, c(0.95)))
+
+(p.value <- sum(sim.male.distinctiveness$stat > mean.male.distinctiveness)/reps)
+```
+
+```{r Plot Results}
+male.distinctiveness.plot <- ggplot(
+  data = sim.male.distinctiveness, aes(stat)) +
+  geom_histogram(aes(y = after_stat(density)), fill = "darkgrey", binwidth = 0.075, center = mean(sim.male.distinctiveness$stat)) +
+  geom_density(fill = "blue", alpha = 0.2) +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(0, 0, 1, 1), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  ) +
+  ggtitle("MHC Distinctiveness among Sires") +
+  xlab("Mean Number of Alleles") +
+  ylab("Frequency") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1, decimal.mark = '.')) +
+  geom_vline(xintercept = mean.male.distinctiveness, col = "red" ,linewidth = 1) +
+  geom_vline(xintercept = male.distinctiveness.crit.val, linetype = "dotted", color = "black", linewidth = 1) +
+  annotate("rect", xmin = -Inf, xmax = male.distinctiveness.crit.val, ymin = 0, ymax = Inf, alpha = 0.25, fill = "grey")
+
+male.distinctiveness.plot
+```
+
+## P3a - Relatedness and Kinship
+
+Here, we examine whether dam-actual sire pairs are more or less closely related, on average, than dam-random sire pairs. As above, we first create an updated "relatedness" data matrix that duplicates lines corresponding to additional offspring for each female and has `NA`s in cells for where an given male could not be a potential sire for the offspring in question.
+
+```{r Updated Relatedness Matrix}
+# Create an empty matrix that we will fill with appropriate values
+relatedness.updated <- matrix(NA, nrow = length(dams), ncol = length(males), dimnames = list(dams, males))
+
+# Extract values from relatedness only where the overview matrix indicates a male could be a potential sire of each dams' offspring
+
+for (i in 1:nrow(overview)) {
+  for (j in dimnames(relatedness.updated)[[2]]) {
+    relatedness.updated[i,j] <- overview[i,j] * relatedness[rownames(relatedness.updated)[[i]], j]
+  }
+}
+
+# To save this data structure...
+relatedness.updated %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "ID") %>%
+  as_tibble() %>%
+  write_tsv(file = "outputs/relatedness.matrix.txt")
+```
+
+We then run another analogous simulation to those above. This time, the result of each replicate is the average relatedness among each set of dams + simulated sires, and the null distribution of this statistic is held in `sim.relatedness$stat`.
+
+```{r Relatedness Simulation}
+set.seed(seed)
+
+sim.relatedness <- replicate(
+  reps,
+  apply(relatedness.updated, 1, function(x) sample(x[!is.na(x)], 1))
+  ) %>%
+  t() %>%
+  as_tibble() %>% 
+  mutate(replicate = row_number()) %>%
+  pivot_longer(cols = -c(replicate)) %>%
+  group_by(replicate) %>%
+  summarize(stat = mean(value))
+```
+
+As above, we extract observed relatedness among actual dam-sire pairs by pulling the relevant data from the "relatedness" matrix and calculating the average of these values...
+
+```{r Observed Mean Female-Mean Relatedness}
+# Extract values to calculate observed mean relatedness between mated pairs
+
+relatedness.obs <- vector()
+for (i in 1:length(offspring)) {
+  relatedness.obs[i] <- relatedness[dams[i], sires[i]]
+}
+
+mean.relatedness = mean(relatedness.obs)
+```
+
+Because we are testing the one-tailed hypothesis of lower relatedness among the set of dam-actual sire pairs than among dam-random sire pairs, the critical value of interest corresponds to the 5th quantile of the simulation distribution.
+
+The associated p value is simply the proportion of simulation runs where the average relatedness among random dam-sire pairs is less than that among real pairs.
+
+```{r Critical Value and P Value}
+(relatedness.crit.val <- quantile(sim.relatedness$stat, c(0.05)))
+
+(p.value <- sum(sim.relatedness$stat < mean.relatedness)/reps)
+```
+
+```{r Plot Results}
+relatedness.plot <- ggplot(data = sim.relatedness, aes(stat)) +
+  geom_histogram(aes(y = after_stat(density)), fill = "darkgrey", binwidth = 0.01, center = mean(sim.relatedness$stat)) +
+  geom_density(fill = "blue", alpha = 0.2) +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(0, 1, 1, 0), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  ) +
+  ggtitle("Dam-Sire Relatedness") +
+  xlab("Mean Estimated R") +
+  ylab("Frequency") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.1, decimal.mark = '.')) +
+  geom_vline(xintercept = relatedness.crit.val, linetype = "dotted", color = "black", linewidth = 1) +
+  geom_vline(xintercept = mean.relatedness, col = "red", linewidth = 1) +
+  annotate("rect", xmin = relatedness.crit.val, xmax = Inf, ymin = 0, ymax = Inf, alpha = 0.25, fill = "grey")
+
+relatedness.plot
+```
+
+```{r Save Combined Figure to PDF}
+pdf(file = "figures/Figure 1.pdf", width = 10, height = 8) # Export figure as PDF, 10" x 8"
+plot_grid(male.diversity.plot, dissimilarity.plot, male.distinctiveness.plot, relatedness.plot, nrow = 2, ncol = 2, align = c("hv"), axis = "lr", labels = c("A.", "B.", "C.", "D."))
+dev.off()
+```
+
+# Kinship Analyses with {related} Data
+
+We use several different approaches to test P3b. First, we compare the mean estimated R among dam-sire pairs to that which we would expect among first- and second-order kin dyads. To do this, we need to generate simulated dyads of these kin classes using the raw genotype data, which is possible with the {related} package.
+
+## Simulating First- and Second-Order Kin
+
+```{r Generate PO FS HS and UN Genotypes Using the {related} Package}
+# Starting with the set of adult genotypes held in "adults_genos", we generate 100 dyads of each kin class...
+set.seed(seed)
+sim <- familysim(adults_genos$freqs, 100)
+sim.fam <- coancestry(sim, error.rates = 0.01, quellergt = 2)
+sim.fam <- cleanuprvals(sim.fam$relatedness, 100)
+rel.values <- sim.fam[, c("quellergt")]
+label1 <- rep("Parent-Offspring", 100)
+label2 <- rep("Full Siblings", 100)
+label3 <- rep("Half Siblings", 100)
+label4 <- rep("Unrelated", 100)
+labels <- c( label1 , label2 , label3 , label4 )
+sim.rel <- tibble(rel = rel.values, dyad_type = c(labels))
+
+sim.rel$dyad_type <- factor(sim.rel$dyad_type, levels = c("Parent-Offspring", "Full Siblings", "Half Siblings", "Unrelated")) # relevel for plotting
+
+write_tsv(sim.rel, "outputs/relatedness_for_simulated_kinship_dyads.txt") # based on simulated dyads from {related} using only adult genotypes
+```
+
+```{r Plot Results}
+p <- ggplot(data = sim.rel, aes(x = dyad_type, y = rel)) +
+  geom_violin() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  geom_boxplot(width = 0.4, alpha = 0.5, fill = "red") +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(1, 1, 1, 1), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)) +
+  xlab("Kinship Class") +
+  ylab("Estimated R") +
+  ggtitle("Distribution of Pairwise R Estimates by Simulated Kinship Class")
+
+p
+```
+
+```{r Save Figure to PDF}
+pdf(file = "figures/Distribution of Pairwise R Estimates by Simulated Kinship Class.pdf", width = 10, height = 8) # Export figure as PDF, 10" x 8"
+p
+dev.off()
+```
+
+## Comparing Mean Dam-Sire R to Mean R among Simulated Kinship Classes
+
+```{r Calculate Mean R among Sets of Dyads of Different Kin Classes}
+# We now need to generate distributions of expected mean R values for each dyad class. To do this, we draw sets of random samples of 47 dyads of each dyad type and calculate mean R for each sample...
+
+reps <- 10000
+set.seed(seed)
+
+sim.res <- tibble(
+  `Mean PO` = numeric(),
+  `Mean FS` = numeric(),
+  `Mean HS` = numeric(),
+  `Mean UN` = numeric())
+for (i in 1:reps) {
+  temp <- sim.rel %>%
+    group_by(dyad_type) %>%
+    slice_sample(n = 47, replace = TRUE) %>%
+    summarize(mean.R = mean(rel)) %>%
+    mutate(dyad_type = case_when(
+      dyad_type == "Parent-Offspring" ~ "Mean PO",
+      dyad_type == "Full Siblings" ~ "Mean FS",
+      dyad_type == "Half Siblings" ~ "Mean HS", 
+      dyad_type == "Unrelated" ~ "Mean UN")) %>%
+    pivot_wider(names_from = dyad_type, values_from = mean.R)
+  sim.res <- bind_rows(sim.res, temp)
+}
+
+sim.res <- sim.res %>%
+  pivot_longer(everything(), names_to = "dyad.type", values_to = "mean.R")
+```
+
+```{r Calculate Estimated R and Mean R among Actual Dam-Sire Pairs}
+# We now extract a dataset of estimated R values among of actual dam-sire pairs. To do this, we first read in the parentage data again and merge it with "pairwise_R" as determined from "adult_genos" above...
+parents <- read_tsv("data/parentage_and_candidates.txt", col_names = TRUE) %>%
+  mutate(pair = paste0(dam, "=" , sire)) %>%
+  select(offspring, dam, sire, pair)
+
+pairwise_R <- pairwise_R %>%
+  mutate(pair = paste0(`ind1.id`,"=",`ind2.id`)) %>% dplyr::select(pair, quellergt)
+
+temp <- left_join(parents, pairwise_R, by = c("pair" = "pair"))
+temp <- temp %>% mutate(pair = if_else(is.na(quellergt), paste0(sire, "=", dam), pair)) # this checks if we need to reverse sire and dam to extract their pairwise R estimate from the half matrix that is pairwise R... if an R value is not found, then we flip the order of the dyad members
+temp <- temp %>% dplyr::select(-c(quellergt))
+temp <- left_join(temp, pairwise_R, by = c("pair" = "pair"))
+
+dam_sire <- temp %>%
+  mutate(dyad.type = "Dam-Sire") %>%
+  rename(obs.R = quellergt) %>%
+  dplyr::select(dyad.type, obs.R, pair)
+# This is now a small dataset consisting of the dam+sire R values for each of 47 offspring.
+
+mean_dam_sire <- mean(dam_sire$obs.R) # mean observed R among dam-sire pairs
+```
+
+```{r Bootstrap to Get Distribution of Expected Mean R among Dam-Sire Pairs}
+# We can use a bootstrap procedure with the dam-sire pair data extracted above to generate a distribution of expected mean R values among dam-sire dyads. The results of this bootstrap are then added to the simulation results for first- and second-order kin classes.
+
+dam_sire_boot <- tibble( # tibble to hold each bootstrap result
+  dyad.type = factor(),
+  mean.R = numeric())
+
+reps <- 10000
+set.seed(seed)
+
+for (i in 1:reps) {
+  rep <- dam_sire %>%
+    slice_sample(prop = 1, replace = TRUE) %>% # the bootstrap involves sampling with replacement
+    summarize(mean.R = mean(obs.R)) %>%
+    mutate(dyad.type = "Mean DS") %>%
+    dplyr::select(dyad.type, mean.R)
+  dam_sire_boot <- bind_rows(dam_sire_boot, rep)
+}
+
+sim.res <- bind_rows(sim.res, dam_sire_boot) # join together simulation results for first- and second-order kin with those for dams-sires
+
+sim.res$dyad.type <- factor(sim.res$dyad.type, levels = c("Mean PO", "Mean FS", "Mean HS", "Mean UN", "Mean DS")) # relevel for plotting
+
+sim.res <- sim.res %>% arrange(dyad.type)
+
+write_tsv(sim.res, "outputs/kinship.simulation_results.txt") # based on only adult genotypes from {related}
+```
+
+```{r Plot Results}
+(p <- ggplot(data = sim.res, aes(x = mean.R)) +
+  geom_histogram(bins = 50) +
+  facet_wrap(~dyad.type, scales = "free") +
+  xlab("Mean Estimated R") +
+  ylab("Frequency") +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(1, 1, 1, 1), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)
+  )
+ )
+
+(dyad.type.plot <- ggplot(data = sim.res, aes(x = dyad.type, y = mean.R)) +
+  geom_violin() +
+  geom_boxplot(width = 0.2) +
+  xlab("Dyad Type") +
+  ylab("Estimated R") +
+  ggtitle("Expected Mean Pairwise R for Dyads of\nDifferent Kinship Class and for Dam-Sire Dyads") +
+    theme_light() +
+    theme(
+      plot.margin =  unit(c(0.5, 1, 1, 1), "cm"),
+      axis.title = element_text(size = 13),
+      axis.text = element_text(size = 11),
+      axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+      axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+      plot.title = element_text(size = 14, hjust = 0)
+    ) +
+  ylim(-0.4, 0.7)
+  )
+
+(dam.sire.plot <- ggplot(data = dam_sire, aes(x = dyad.type, y = obs.R)) +
+    geom_boxplot(width = 0.2) +
+    geom_point() +
+    xlab("Dyad Type") +
+    ylab("Estimated R") +
+    ggtitle("Pairwise R Estimates\nfor Known Dam-Sire Dyads") +
+    theme_light() +
+    theme(
+      plot.margin =  unit(c(0.5, 1, 1, 1), "cm"),
+      axis.title = element_text(size = 13),
+      axis.text = element_text(size = 11),
+      axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+      axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+      plot.title = element_text(size = 14, hjust = 0)
+    ) +
+    ylim(-0.4, 0.7)
+  )
+```
+
+```{r Calculate P Values for Dam-Sire to Simulated Kinship Class Comparison}
+# Compare to Parent-Offspring
+po <- sim.res %>% filter(dyad.type == "Mean PO")
+(p_value <- (sum(po$mean.R <= abs(mean_dam_sire)) + sum(-1 * po$mean.R >= -1 * abs(mean_dam_sire))) / reps) # p << 0.05
+
+# Compare to Full Siblings
+fs <- sim.res %>% filter(dyad.type == "Mean FS")
+(p_value <- (sum(fs$mean.R <= abs(mean_dam_sire)) + sum(-1 * fs$mean.R >= -1 * abs(mean_dam_sire))) / reps) # p << 0.05
+
+# Compare to Half-Siblings
+hs <- sim.res %>% filter(dyad.type == "Mean HS")
+(p_value <- (sum(hs$mean.R <= abs(mean_dam_sire)) + sum(-1 * hs$mean.R >= -1 * abs(mean_dam_sire))) / reps) # p << 0.05
+
+# Compare to Unrelated
+un <- sim.res %>% filter(dyad.type == "Mean UN")
+(p_value <- (sum(un$mean.R <= abs(mean_dam_sire) | -1 * un$mean.R >= -1 * abs(mean_dam_sire))) / reps) # only for the comparison between mean dam-sire R and mean unrelated R is the p value > 0.05
+```
+
+# Kinship Analyses with KINGROUP2 Data
+
+Additional kinship analyses use KINGROUP2's implementation of the Queller-Goodnight R estimate, which is slightly different than that calculated by {related}. In the analyses below, we use the KINGROUP2 estimator of R because we are also looking at the results of KINGROUP2's likelihood ratio tests. Nonetheless, the correlation between {related} and KINGROUP2's estimates of dyadic R are extremly similar, which we show initially.
+
+```{r Load Estimated R Values from KINGROUP2}
+# These are held in two additional files, one with adult genotypes and corresponding KINGROUP2 estimates of pairwise R and one with all genotypes and corresponding KINGROUP2 estimates of pairwise R
+
+n <- 64 # number of adult individuals
+adults_pairwise_R_kingroup <- read_csv("data/adults_kingroup2.txt", skip = n + 4, col_select = -1, n_max = n)
+names(adults_pairwise_R_kingroup)[1] <- "ind1.id"
+adults_pairwise_R_kingroup[1,2] <- NA
+adults_pairwise_R_kingroup[[2]] <- as.numeric(adults_pairwise_R_kingroup[[2]])
+
+adults_pairwise_R_kingroup <- adults_pairwise_R_kingroup %>%
+  pivot_longer(cols = !"ind1.id", names_to =  "ind2.id", values_to = "quellergt") %>%
+  filter(!is.na(quellergt)) %>%
+  mutate(pair = paste0(ind1.id,"=",ind2.id))
+
+# This now contains R values for adult dyads (full matrix except for diagonal), or 4032 dyads
+
+n <- 111 # total number of individuals
+all_pairwise_R_kingroup <- read_csv("data/all_kingroup2.txt", skip = n + 4, col_select = -1, n_max = n)
+names(all_pairwise_R_kingroup)[1] <- "ind1.id"
+all_pairwise_R_kingroup[1,2] <- NA
+all_pairwise_R_kingroup[[2]] <- as.numeric(all_pairwise_R_kingroup[[2]])
+
+all_pairwise_R_kingroup <- all_pairwise_R_kingroup %>%
+  pivot_longer(cols = !"ind1.id", names_to =  "ind2.id", values_to = "quellergt") %>%
+  filter(!is.na(quellergt)) %>%
+  mutate(pair = paste0(ind1.id,"=",ind2.id))
+
+# This now contains R values for *all* dyads (full matrix except for diagonal), or 12,210 dyads
+```
+
+```{r Compare {related} and KINGROUP2 Estimated R Values}
+# Confirm close relationship between {related} and KINGROUP2 Queller-Goodnight R estimates
+
+adults_comparison <- inner_join(adults_pairwise_R, adults_pairwise_R_kingroup, by = c("pair" = "pair"))
+
+all_comparison <- inner_join(all_pairwise_R, all_pairwise_R_kingroup, by = c("pair" = "pair"))
+
+(adults.plot <- ggplot(data = adults_comparison, aes(x = quellergt.x, y = quellergt.y)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE, formula = y ~ x) +
+    theme_light() +
+    theme(
+      plot.margin =  unit(c(1, 1, 1, 1), "cm"),
+      axis.title = element_text(size = 14),
+      axis.text = element_text(size = 12),
+      axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+      axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+      plot.title = element_text(size = 15, hjust = 0.0)) +
+    xlim(-0.6, 0.8) +
+    ylim(-0.6, 0.8) +
+    ggtitle("Pairwise R Estimates - Adult Individuals") +
+    xlab("Estimated R from {related}") +
+    ylab("Estimated R from KINGROUP2") +
+    stat_regline_equation(
+      aes(label = paste(after_stat(eq.label),..rr.label.., sep = "~~~~~~")))
+  )
+
+(all.plot <- ggplot(data = all_comparison, aes(x = quellergt.x, y = quellergt.y)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE, formula = y ~ x) +
+    theme_light() +
+    theme(
+      plot.margin =  unit(c(1, 1, 1, 1), "cm"),
+      axis.title = element_text(size = 14),
+      axis.text = element_text(size = 12),
+      axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+      axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+      plot.title = element_text(size = 15, hjust = 0.0)) +
+    xlim(-0.6, 0.80) +
+    ylim(-0.6, 0.80) +
+    ggtitle("Pairwise R Estimates - All Individuals") +
+    xlab("Estimated R from {related}") +
+    ylab("Estimated R from KINGROUP2") +
+    stat_regline_equation(
+      aes(label = paste(after_stat(eq.label),..rr.label.., sep = "~~~~~~")))
+  )
+```
+
+```{r Save Combined Figure to PDF}
+pdf(file = "figures/Comparison of Pairwise R Estimates.pdf", width = 10, height = 8) # Export figure as PDF, 10" x 8"
+plot_grid(adults.plot, all.plot, nrow = 1, ncol = 2, align = c("hv"), axis = "lr", labels = c("A.", "B."))
+dev.off()
+```
+
+## Comparing Mean R among Dyad Types
+
+```{r Load Dyad Types and Calculate Mean R}
+# We first load in a dataset of dyads and assigned dyad types to compare, based on individuals' sex classes and on parentage results. Dyads among adults are either male-male (MM), female-female (FF), or mixed-sex (MS), some of which are also dam-sire (DS) dyads. Dyads of interest involving adults and immatures can be dam-offspring (DO) or sire-offspring (SO). Additionally, from parentage analyses, we know that some dyads are maternal half-siblings (MHS), paternal half siblings (PHS), or full-siblings (FS). Finally, we know that some pairs of males constitute successive sires (SS) of offspring of the same dam.
+dyads <- read_tsv("data/dyad_types.txt", col_names = TRUE) %>%
+  mutate(pair = paste0(ind1.id, "=", ind2.id))
+
+# We then join these dyads to the R estimates coming from KINGROUP2 and calculate the mean R by dyad type
+dyads <- dyads %>%
+  left_join(., all_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair"))
+
+dyads$dyad.type <- factor(dyads$dyad.type, levels = c("DO", "SO", "FS", "MHS", "PHS", "MM", "MS", "FF", "DS", "SS"))
+
+mean_R <- dyads %>%
+  group_by(dyad.type) %>%
+  summarize(mean.R = mean(quellergt), count = n())
+```
+
+```{r Plot Results}
+(p <- ggplot(dyads, aes(x = dyad.type, y = quellergt)) + 
+  # geom_violin() +
+  geom_boxplot() +
+  geom_jitter(width = 0.1, alpha = 0.5) +
+  # theme_light() +
+  theme(
+    plot.margin =  unit(c(1, 1, 1, 1), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0)
+  ) +
+  geom_point(data = mean_R, aes(x = dyad.type, y = mean.R), color = "black", size = 6, shape = 23, fill = "red") +
+  theme_light() +
+  theme(
+    plot.margin =  unit(c(1, 1, 1, 1), "cm"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 5, l = 0)),
+    axis.text.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 5)),
+    plot.title = element_text(size = 15, hjust = 0.0)) +
+  ggtitle("Distribution of Pairwise R Estimates by Known Kinship Class or Dyad Type") +
+  xlab("Kinship Class or Dyad Type") +
+  ylab("Estimated R"))
+```
+
+```{r Save Figure to PDF}
+pdf(file = "figures/Distribution of Pairwise R Estimates by Known Kinship Class or Dyad Type.pdf", width = 10, height = 8) # Export figure as PDF, 10" x 8"
+p
+dev.off()
+```
+
+```{r Comparisons of Dam-Sire Dyads to Known Kinship Classes and Adult Dyad Types}
+# Define a function to select data for dyad types to be compared and then test for differences in mean R by dyad type using a permutation approach. The function prints out a plot of the observed difference in mean R for the comparison along with the permutation distribution as well as the p value for the comparison, and it returns the permutation distribution for the comparison.
+compare_dyad_types <- function(df, types, reps = 10000){
+  # two dyad types will be compared...
+  # filter data...
+  d <- df %>% filter(dyad.type %in% types)
+  # calculcate observed difference in mean R between dyad types
+  obs <- d %>%
+    group_by(dyad.type) %>%
+    summarize(mean.R = mean(quellergt)) %>%
+    pivot_wider(names_from = dyad.type, values_from = mean.R)
+  obs[["diff"]] <- obs[[types[1]]] - obs[[types[2]]]
+  
+  # set up tibble to hold permutation results
+  rep.res <- tibble(
+    !!types[1] := numeric(),
+    !!types[2] := numeric(),
+    diff = numeric()
+  )
+
+  set.seed(seed)
+  
+  # reps permutations, shuffle dyad type and then recalculate and store mean R by type and the difference
+  for (i in 1:reps) {
+    rep <- d
+    rep$dyad.type <- sample(rep$dyad.type)
+    rep.out <- rep %>%
+      group_by(dyad.type) %>%
+      summarize(mean.R = mean(quellergt)) %>%
+      pivot_wider(names_from = dyad.type, values_from = mean.R)
+    rep.out[["diff"]] <- rep.out[[types[1]]] - rep.out[[types[2]]]
+    rep.res <- bind_rows(rep.res, rep.out)
+  }
+
+  # plot histogram of permutation distribution of differences between dyad types (should be centered at 0) along with the observeed difference
+  p <- ggplot(rep.res, aes(x = diff)) +
+    geom_histogram() +
+    geom_vline(xintercept = obs$diff)
+  print(p)
+
+  # calculate p value associated with observed difference - two different methods
+  p_value_1 <- (sum(rep.res$diff >= abs(obs$diff)) + sum(rep.res$diff <= -1 * abs(obs$diff))) / reps
+  print(paste0("p value {direct calculation}: ", p_value_1))
+  p_value_2 <- get_p_value(as.data.frame(rep.res$diff), obs$diff, direction = "both") %>% pull(p_value)
+  # print(paste0("p value {infer}: ", p_value_2))
+  return(rep.res)
+}
+
+# Then, compare mean dam-sire relatedness with different kinship classes and with same- and mixed-sex adult dyads generally
+# compare DS with DO
+ds_do <- compare_dyad_types(dyads, c("DS", "DO"))
+
+# compare DS with SO
+ds_so <- compare_dyad_types(dyads, c("DS", "SO"))
+
+# compare DS with FS
+ds_fs <- compare_dyad_types(dyads, c("DS", "FS"))
+
+# compare DS with MHS
+ds_mhs <- compare_dyad_types(dyads, c("DS", "MHS"))
+
+# compare DS with PHS
+ds_phs <- compare_dyad_types(dyads, c("DS", "PHS"))
+
+# compare DS with MM
+ds_mm <- compare_dyad_types(dyads, c("DS", "MM"))
+
+# compare DS with FF
+ds_ff <- compare_dyad_types(dyads, c("DS", "FF"))
+
+# compare DS with MS
+ds_ms <- compare_dyad_types(dyads, c("DS", "MS"))
+
+# Also compare successive sires with same dam to male-male dyads
+# compare SS with MM
+ss_mm <- compare_dyad_types(dyads, c("SS", "MM"))
+```
+
+```{r Comparison among Adult Dyad Types}
+# And, finally, we can compare mean R among same- and mixed-sex adult dyads using estimated R values from all individuals in KINGROUP2 (as we did previously with estimated R values for adults only from {related})... this extra analysis is not reported in the publication, but supports the conclusions presented therein, i.e., that adult males are more closely related, on average, than expected by chance; that adult females are somewhat less closely related, on average, than expected by chance; and that adult males are, on average, more closely related to one another than adult females are to one another.
+
+compare_sex_classes <- function(df, classes, reps = 10000){
+  # can have more than two classes but first two will be the ones compared...
+  d <- df %>% filter(dyad.type %in% classes)
+  d <- left_join(d, adults, by = c("ind1.id" = "ID"))
+  d <- left_join(d, adults, by = c("ind2.id" = "ID"))
+  d <- d %>% rename(ind1.sex = sex.x, ind2.sex = sex.y)
+  obs <- d %>%
+    group_by(dyad.type) %>%
+    summarize(mean.R = mean(quellergt)) %>%
+    pivot_wider(names_from = dyad.type, values_from = mean.R)
+  obs[[paste0(classes[1], ".", classes[2], ".diff")]] <- obs[[classes[1]]] - obs[[classes[2]]]
+  obs[[paste0(classes[1], ".", classes[3], ".diff")]] <- obs[[classes[1]]] - obs[[classes[3]]]
+  obs[[paste0(classes[2], ".", classes[3], ".diff")]] <- obs[[classes[2]]] - obs[[classes[3]]]
+  
+  rep.res <- tibble(
+    !!classes[1] := numeric(),
+    !!classes[2] := numeric(),
+    !!classes[3] := numeric(),
+    !!paste0(classes[1],".",classes[2],".diff") := numeric(),
+    !!paste0(classes[1],".",classes[3],".diff") := numeric(),
+    !!paste0(classes[2],".",classes[3],".diff") := numeric()
+  )
+
+  set.seed(seed)
+
+  for (i in 1:reps) {
+    rep <- d
+    rep_sexes <- adults
+    rep_sexes$sex <- sample(rep_sexes$sex) # shuffle sexes
+    rep <- left_join(rep, rep_sexes, by = c("ind1.id" = "ID"))
+    rep <- left_join(rep, rep_sexes, by = c("ind2.id" = "ID"))
+    rep <- rep %>% rename(ind1.new.sex = sex.x, ind2.new.sex = sex.y)
+    rep <- rep %>% mutate(`new.dyad.type` = paste0(ind1.new.sex, ind2.new.sex))
+    rep <- rep %>% mutate(new.dyad.type = case_when(
+      new.dyad.type == "MF" | new.dyad.type == "FM" ~ "MS",
+      new.dyad.type == "FF" ~ "FF",
+      new.dyad.type == "MM" ~ "MM")
+    )
+    rep.out <- rep %>%
+      group_by(new.dyad.type) %>%
+      summarize(mean.R = mean(quellergt)) %>%
+      pivot_wider(names_from = new.dyad.type, values_from = mean.R)
+    rep.out[[paste0(classes[1],".",classes[2],".diff")]] <- rep.out[[classes[1]]] - rep.out[[classes[2]]]
+    rep.out[[paste0(classes[1],".",classes[3],".diff")]] <- rep.out[[classes[1]]] - rep.out[[classes[3]]]
+    rep.out[[paste0(classes[2],".",classes[3],".diff")]] <- rep.out[[classes[2]]] - rep.out[[classes[3]]]
+    rep.res <- bind_rows(rep.res, rep.out)
+  }
+
+  # female-female dyads
+  p_FF <- ggplot(rep.res, aes(x = FF)) +
+    geom_histogram(bins = 25) +
+    geom_vline(xintercept = obs$FF)
+  print(p_FF)
+
+  # calculate p value associated with comparison to expected - two different methods
+  p_value_1 <- sum(rep.res$FF < obs$FF)/reps # one-tailed test
+  print(paste0("p value FF {direct calculation}: ", p_value_1))
+  p_value_2 <- get_p_value(as.data.frame(rep.res$FF), obs$FF, direction = "left") %>% pull(p_value)
+  print(paste0("p value FF {infer}: ", p_value_2))
+  
+  # male-male dyads
+  p_MM <- ggplot(rep.res, aes(x = MM)) +
+    geom_histogram(bins = 25) +
+    geom_vline(xintercept = obs$MM)
+  print(p_MM)
+
+  # calculate p value associated with comparison to expected - two different methods
+  p_value_1 <- sum(rep.res$MM > obs$MM)/reps # one-tailed test
+  print(paste0("p value MM {direct calculation}: ", p_value_1))
+  p_value_2 <- get_p_value(as.data.frame(rep.res$MM), obs$MM, direction = "right") %>% pull(p_value)
+  print(paste0("p value MM {infer}: ", p_value_2))
+
+  # male-female difference
+  p_MM_FF_difference <- ggplot(rep.res, aes(x = MM.FF.diff)) +
+    geom_histogram(bins = 25) +
+    geom_vline(xintercept = obs$MM.FF.diff)
+  print(p_MM_FF_difference)
+  
+  # calculate p value associated with observed difference - two different methods
+  p_value_1 <- sum(rep.res$MM.FF.diff > obs$MM.FF.diff)/reps # one-tailed test
+  print(paste0("p value MM-FF diff {direct calculation}: ", p_value_1))
+  p_value_2 <- get_p_value(as.data.frame(rep.res$MM.FF.diff), obs$MM.FF.diff, direction = "right") %>% pull(p_value)
+  print(paste0("p value MM-FF diff {infer}: ", p_value_2))
+  
+  return(rep.res)
+}
+
+mm_ff <- compare_sex_classes(dyads, classes = c("MM","FF", "MS")) # here, we include MS as a class because we are permuting by individual sex, but the comparisons of interest are still FF and MM compared to expected and to one another
+```
+
+## Processing Results of Analyses of Likely Close Kin
+
+```{r Compare Dam-Sire Dyads to KINGROUP2 Outputs}
+# First, we load in the parentage data again
+parents <- read_tsv("data/parentage_and_candidates.txt", col_names = TRUE) %>%
+  mutate(pair = paste0(dam, "=" , sire)) %>%
+  select(offspring, dam, sire, pair)
+# this now contains a list of parents for each offspring
+
+# Then, we load in results from running KINGROUP2 to find dyads of likely "close kin" and compare these to "parents" to see whether any dam-sire dyads might be considered as such kin. There are six relevant files stored in the folder "kingroup2_results" within the "data" folder of this repository. These are the results for running full sibling versus unrelated, half sibling versus unrelated, and parent-offspring versus unrelated likelihood ratio tests for both the "all individuals" and "adults only" genotype datasets. The original KINGROUP2 results files were edited to include just the likelihood ratio test results.
+
+# full siblings versus unrelated...
+n <- 111 # total number of individuals
+fs_vs_un_all <- read_csv("data/kingroup2/FS_vs_UN_all.txt", skip = 10, col_select = -1, n_max = n)
+names(fs_vs_un_all)[1] <- "ind1.id"
+fs_vs_un_all <- fs_vs_un_all %>%
+  pivot_longer(cols = !"ind1.id", names_to = "ind2.id", values_to = "sig") %>% # pivot to column format
+  filter(!is.na(sig)) %>% # remove diagonals
+  mutate(pair = paste0(ind1.id,"=",ind2.id)) %>%
+  mutate(sig2 = if_else(sig != "ns","*","ns")) %>%
+  left_join(., all_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair")) %>%
+  mutate(parents = if_else(pair %in% parents$pair, "*","")) %>%
+  left_join(., adults, by = (c("ind1.id" = "ID"))) %>%
+  left_join(., adults, by = (c("ind2.id" = "ID"))) %>% rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
+  mutate(dyad_type = paste0(ind1.sex,"=", ind2.sex)) %>%
+  mutate(dyad_type = if_else(dyad_type == "M=F", "F=M", dyad_type))
+
+n <- 64 # number of adult individuals
+fs_vs_un_adult <- read_csv("data/kingroup2/FS_vs_UN_adult.txt", skip = 10, col_select = -1, n_max = n)
+names(fs_vs_un_adult)[1] <- "ind1.id"
+fs_vs_un_adult <- fs_vs_un_adult %>%
+  pivot_longer(cols = !"ind1.id", names_to = "ind2.id", values_to = "sig") %>% # pivot to column format
+  filter(!is.na(sig)) %>% # remove diagonals
+  mutate(pair = paste0(ind1.id,"=",ind2.id)) %>%
+  mutate(sig2 = if_else(sig != "ns","*","ns")) %>%
+  left_join(., adults_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair")) %>%
+  mutate(parents = if_else(pair %in% parents$pair, "*","")) %>%
+  left_join(., adults, by = (c("ind1.id" = "ID"))) %>%
+  left_join(., adults, by = (c("ind2.id" = "ID"))) %>% rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
+  mutate(dyad_type = paste0(ind1.sex,"=", ind2.sex)) %>%
+  mutate(dyad_type = if_else(dyad_type == "M=F", "F=M", dyad_type))
+
+# half-siblings versus unrelated...
+n <- 111 # total number of individuals
+hs_vs_un_all <- read_csv("data/kingroup2/HS_vs_UN_all.txt", skip = 10, col_select = -1, n_max = n)
+names(hs_vs_un_all)[1] <- "ind1.id"
+hs_vs_un_all <- hs_vs_un_all %>%
+  pivot_longer(cols = !"ind1.id", names_to = "ind2.id", values_to = "sig") %>%
+  filter(!is.na(sig)) %>%
+  mutate(pair = paste0(ind1.id,"=",ind2.id)) %>%
+  mutate(sig2 = if_else(sig != "ns","*","ns")) %>%
+  left_join(., all_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair")) %>%
+  mutate(parents = if_else(pair %in% parents$pair, "*","")) %>%
+  left_join(., adults, by = (c("ind1.id" = "ID"))) %>%
+  left_join(., adults, by = (c("ind2.id" = "ID"))) %>% rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
+  mutate(dyad_type = paste0(ind1.sex,"=", ind2.sex)) %>%
+  mutate(dyad_type = if_else(dyad_type == "M=F", "F=M", dyad_type))
+
+n <- 64 # number of adult individuals
+hs_vs_un_adult <- read_csv("data/kingroup2/HS_vs_UN_adult.txt", skip = 10, col_select = -1, n_max = n)
+names(hs_vs_un_adult)[1] <- "ind1.id"
+hs_vs_un_adult <- hs_vs_un_adult %>%
+  pivot_longer(cols = !"ind1.id", names_to = "ind2.id", values_to = "sig") %>%
+  filter(!is.na(sig)) %>%
+  mutate(pair = paste0(ind1.id,"=",ind2.id)) %>%
+  mutate(sig2 = if_else(sig != "ns","*","ns")) %>%
+  left_join(., adults_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair")) %>%
+  mutate(parents = if_else(pair %in% parents$pair, "*","")) %>%
+  left_join(., adults, by = (c("ind1.id" = "ID"))) %>%
+  left_join(., adults, by = (c("ind2.id" = "ID"))) %>% rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
+  mutate(dyad_type = paste0(ind1.sex,"=", ind2.sex)) %>%
+  mutate(dyad_type = if_else(dyad_type == "M=F", "F=M", dyad_type))
+
+# parent-offspring versus unrelated
+n <- 111 # total number of individuals
+po_vs_un_all <- read_csv("data/kingroup2/PO_vs_UN_all.txt", skip = 10, col_select = -1, n_max = n)
+names(po_vs_un_all)[1] <- "ind1.id"
+po_vs_un_all <- po_vs_un_all %>%
+  pivot_longer(cols = !"ind1.id", names_to = "ind2.id", values_to = "sig") %>%
+  filter(!is.na(sig)) %>%
+  mutate(pair = paste0(ind1.id,"=",ind2.id)) %>%
+  mutate(sig2 = if_else(sig != "x","*","ns")) %>%
+  left_join(., all_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair")) %>%
+  mutate(parents = if_else(pair %in% parents$pair, "*","")) %>%
+  left_join(., adults, by = (c("ind1.id" = "ID"))) %>%
+  left_join(., adults, by = (c("ind2.id" = "ID"))) %>% rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
+  mutate(dyad_type = paste0(ind1.sex,"=", ind2.sex)) %>%
+  mutate(dyad_type = if_else(dyad_type == "M=F", "F=M", dyad_type))
+
+n <- 64 # number of adult individuals
+po_vs_un_adult <- read_csv("data/kingroup2/PO_vs_UN_adult.txt", skip = 10, col_select = -1, n_max = n)
+names(po_vs_un_adult)[1] <- "ind1.id"
+po_vs_un_adult <- po_vs_un_adult %>%
+  pivot_longer(cols = !"ind1.id", names_to = "ind2.id", values_to = "sig") %>%
+  filter(!is.na(sig)) %>%
+  mutate(pair = paste0(ind1.id,"=",ind2.id)) %>%
+  mutate(sig2 = if_else(sig != "x","*","ns")) %>%
+  left_join(., adults_pairwise_R_kingroup, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair")) %>%
+  mutate(parents = if_else(pair %in% parents$pair, "*","")) %>%
+  left_join(., adults, by = (c("ind1.id" = "ID"))) %>%
+  left_join(., adults, by = (c("ind2.id" = "ID"))) %>% rename(ind1.sex = sex.x, ind2.sex = sex.y) %>%
+  mutate(dyad_type = paste0(ind1.sex,"=", ind2.sex)) %>%
+  mutate(dyad_type = if_else(dyad_type == "M=F", "F=M", dyad_type))
+
+# Check if any FS, HS, or PO pairs are also parents...
+(are_any_parents_fs <- fs_vs_un_all %>%
+  filter(parents == "*") %>%
+  filter(sig2 == "*")) # 2 dam-sire dyads are more likely to be FS than UN; these same 2 dyads are found if we use fs_vs_un_adult
+
+(are_any_parents_hs <- hs_vs_un_all %>%
+  filter(parents == "*") %>%
+  filter(sig2 == "*")) # if we use hs_vs_un_all, no parent dyads are more likely to be HS than UN; if we use hs_vs_un_adult, 3 dyads are more likely to be HS than UN
+
+(are_any_parents_po <- po_vs_un_all %>%
+  filter(parents == "*") %>%
+  filter(sig2 == "*")) # no parent dyads are more likely to be PO than UN; if we use po_vs_un_adult, then again no dyads are more likely to be PO than UN
+```
+
+```{r Close Kin among Dam-Sire Pairs}
+# Pull out any dam-sire pairs from the analysis above that are more likely to be close kin than unrelated...
+close_kin_among_ds <- bind_rows(
+  are_any_parents_fs,
+  are_any_parents_hs,
+  are_any_parents_po) %>%
+  dplyr::select("ind1.id", "ind2.id", "pair")
+
+close_kin_among_ds <- close_kin_among_ds %>%
+  mutate(dyad.type = "Dam-Sire") %>%
+  left_join(., adults_pairwise_R_full, by = c("ind1.id" = "ind1.id", "ind2.id" = "ind2.id", "pair" = "pair"))
+```
+
+```{r Highlight Possible Close-Kin Pairs in Dam-Sire Plot}
+# We can then highlight these "close kin" dam-sire dyads on the existing plot of pairwise R estimates for known dam-sire dyads
+(dam.sire.plot <- dam.sire.plot +
+  geom_point(data = close_kin_among_ds, aes(x = dyad.type, y = quellergt), color = "black", size = 4, shape = 23, fill = "red", alpha = 0.8))
+```
+
+```{r Save Combined Figure to PDF}
+pdf(file = "figures/Expected Mean Pairwise R for Kin and Dam-Sire Dyads + Pairwise R Estimates for Known Dam-Sire Dyads.pdf", width = 10, height = 8) # Export figure as PDF, 10" x 8"
+plot_grid(dyad.type.plot, dam.sire.plot, align = "v", rel_widths = c(2,1.5), labels = c("A.", "B."))
+dev.off()
+```
+
+# Heterozygosity and MHC Diversity
+
+```{r Correlation between Individual H and MHC Diversity}
+# The data set "adults", which we have already loaded in, contains information on individual heterozygosity (proportion of typed loci that are heterozygous) and number of MHC alleles. Here, we look at whether these are two variables are related.
+
+# Among dams...
+dams <- adults %>% filter(sex == "F", !is.na(mhc.diversity))
+cor.test(dams$h.indiv, dams$mhc.diversity, method = "kendall")
+KendallTauB(dams$h.indiv, dams$mhc.diversity, conf.level = 0.95)
+
+# Among sires...
+sires <- adults %>% filter(sex == "M", !is.na(mhc.diversity))
+cor.test(sires$h.indiv, sires$mhc.diversity, method = "kendall")
+KendallTauB(sires$h.indiv, sires$mhc.diversity, conf.level = 0.95)
+
+# And overall...
+cor.test(adults$h.indiv, adults$mhc.diversity, method = "kendall")
+
+KendallTauB(adults$h.indiv,adults$mhc.diversity, conf.level = 0.95)
+```
+
+# Relatedness and MHC Dissimilarity
+```{r Correlation between Estimated R and Dissimilarity}
+# Finally, we can look at the relationship across dyads between estimated R and MHC dissimilarity, although this is not an analysis presented in the publication. We load in a summary of dissimilarity among all pairs of adults (including same-sex dyads) and merge this with pairwise estimated R from {related}. The dissimilarity data is essentially a half matrix of dissimilarity among all dyads, with "NA" added for any dyads involving one of the five adult females who were not typed for MHC.
+
+r_and_dissimilarity <- read_tsv("data/mhc_dissimiliarity.txt", col_names = TRUE) %>%
+  left_join(., adults_pairwise_R_full, by = c("ind1.id"="ind1.id", "ind2.id"="ind2.id", "pair"="pair"))
+
+cor.test(r_and_dissimilarity$quellergt, r_and_dissimilarity$mhc.dissimilarity, method = "kendall")
+
+KendallTauB(r_and_dissimilarity$quellergt, r_and_dissimilarity$mhc.dissimilarity, conf.level = 0.95)
+
+p <- ggplot(data = r_and_dissimilarity, aes(x=quellergt, y= mhc.dissimilarity)) + geom_point() + geom_smooth (method = "lm", se=TRUE)
+
+m <- lm(mhc.dissimilarity ~ quellergt, data = r_and_dissimilarity)
+summary(m)
+
+# There is a slight negative relationship between relatedness and MHC dissimilarity, with more closely related dyads, not surprisingly, being less "dissimilar" at the MHC. Still, this relationship is weak.
+```
